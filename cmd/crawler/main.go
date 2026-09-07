@@ -15,10 +15,15 @@ import (
 	"github.com/swayamsb50/web_crawler/internal/config"
 	"github.com/swayamsb50/web_crawler/internal/crawler"
 	"github.com/swayamsb50/web_crawler/internal/deadletter"
+	"github.com/swayamsb50/web_crawler/internal/extractor"
 	"github.com/swayamsb50/web_crawler/internal/fetcher"
 	"github.com/swayamsb50/web_crawler/internal/frontier"
 	"github.com/swayamsb50/web_crawler/internal/ratelimit"
 	"github.com/swayamsb50/web_crawler/internal/robots"
+	"github.com/swayamsb50/web_crawler/internal/storage/blobstore"
+	blobstorelocal "github.com/swayamsb50/web_crawler/internal/storage/blobstore/local"
+	blobstores3 "github.com/swayamsb50/web_crawler/internal/storage/blobstore/s3"
+	"github.com/swayamsb50/web_crawler/internal/storage/postgres"
 )
 
 func main() {
@@ -97,7 +102,37 @@ func run() error {
 	}
 	defer deadLetterSink.Close()
 
-	pool := crawler.New(f, &pageFetcher{client: httpClient}, crawler.Config{
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
+	defer cancel()
+
+	// Data pipeline: structured storage (Postgres) + raw body blob store.
+	storageBackend, err := postgres.Open(ctx, postgres.Config{
+		DSN:             cfg.Storage.Postgres.DSN,
+		MaxOpenConns:    int32(cfg.Storage.Postgres.MaxOpenConns),
+		MaxIdleConns:    int32(cfg.Storage.Postgres.MaxIdleConns),
+		ConnMaxLifetime: cfg.Storage.Postgres.ConnMaxLifetime,
+	})
+	if err != nil {
+		return fmt.Errorf("connecting to postgres storage backend: %w", err)
+	}
+	defer storageBackend.Close()
+
+	blobStore, err := newBlobStore(ctx, cfg.Storage.BlobStore)
+	if err != nil {
+		return fmt.Errorf("initializing blob store: %w", err)
+	}
+
+	fetch := &pageFetcher{
+		client:        httpClient,
+		extractor:     extractor.NewHTML(),
+		storage:       storageBackend,
+		blobs:         blobStore,
+		honorNofollow: cfg.Crawl.HonorNofollow,
+		honorNoindex:  cfg.Crawl.HonorNoindex,
+		logger:        logger,
+	}
+
+	pool := crawler.New(f, fetch, crawler.Config{
 		GlobalWorkers:  cfg.Concurrency.Global,
 		PerDomainLimit: cfg.Concurrency.PerDomain,
 		MaxDepth:       cfg.Crawl.MaxDepth,
@@ -106,9 +141,6 @@ func run() error {
 		Limiter:        limiter,
 		DeadLetter:     deadLetterAdapter{sink: deadLetterSink},
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
-	defer cancel()
 
 	stopCheckpointing := make(chan struct{})
 	checkpointDone := make(chan struct{})
@@ -125,6 +157,24 @@ func run() error {
 
 	logger.Info("crawl finished", "visited", f.Visited())
 	return nil
+}
+
+// newBlobStore builds the configured blob store backend for raw page
+// bodies: local disk or S3.
+func newBlobStore(ctx context.Context, cfg config.BlobStoreConfig) (blobstore.Store, error) {
+	switch cfg.Backend {
+	case "s3":
+		return blobstores3.New(ctx, blobstores3.Config{
+			Bucket:   cfg.S3.Bucket,
+			Region:   cfg.S3.Region,
+			Prefix:   cfg.S3.Prefix,
+			Endpoint: cfg.S3.Endpoint,
+		})
+	case "local", "":
+		return blobstorelocal.New(cfg.Local.Dir)
+	default:
+		return nil, fmt.Errorf("unknown blob store backend %q", cfg.Backend)
+	}
 }
 
 // deadLetterAdapter adapts *deadletter.FileSink to crawler.DeadLetter.
