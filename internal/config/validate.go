@@ -31,9 +31,6 @@ func (c Config) Validate() error {
 	if c.Crawl.MaxRedirects < 0 {
 		return fmt.Errorf("crawl.max_redirects must be >= 0")
 	}
-	if c.Crawl.Deadline <= 0 {
-		return fmt.Errorf("crawl.deadline must be > 0")
-	}
 	if c.Timeouts.DNS <= 0 || c.Timeouts.Connect <= 0 || c.Timeouts.TLS <= 0 || c.Timeouts.Request <= 0 || c.Timeouts.Overall <= 0 {
 		return fmt.Errorf("all timeouts must be > 0")
 	}

@@ -59,7 +59,6 @@ func applyEnvOverrides(cfg *Config) error {
 		{"CRAWLER_USER_AGENT", func(v string) error { cfg.Crawl.UserAgent = v; return nil }},
 		{"CRAWLER_MAX_BODY_BYTES", int64Setter(&cfg.Crawl.MaxBodyBytes)},
 		{"CRAWLER_MAX_REDIRECTS", intSetter(&cfg.Crawl.MaxRedirects)},
-		{"CRAWLER_DEADLINE", durationSetter(&cfg.Crawl.Deadline)},
 
 		{"CRAWLER_CONCURRENCY_GLOBAL", intSetter(&cfg.Concurrency.Global)},
 		{"CRAWLER_CONCURRENCY_PER_DOMAIN", intSetter(&cfg.Concurrency.PerDomain)},

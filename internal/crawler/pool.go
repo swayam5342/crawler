@@ -33,6 +33,20 @@ type RateLimiter interface {
 	SetRate(domain string, requestsPerSecond float64, burst int)
 }
 
+// DeadLetter records URLs that permanently failed to fetch, so nothing is
+// silently dropped. The concrete implementation lives in the deadletter
+// package.
+type DeadLetter interface {
+	Record(url, domain string, depth, attempts int, cause error) error
+}
+
+// attemptCounter is implemented by fetch errors that know how many attempts
+// were made (e.g. *fetcher.FetchError), detected structurally so this
+// package doesn't need to import fetcher.
+type attemptCounter interface {
+	AttemptCount() int
+}
+
 // Pool drives a fixed number of worker goroutines that pull URLs from a
 // Frontier, fetch them (subject to a per-domain concurrency cap), and push
 // newly discovered links back into the Frontier.
@@ -41,6 +55,7 @@ type Pool struct {
 	fetcher        PageFetcher
 	robots         RobotsChecker // optional
 	limiter        RateLimiter   // optional
+	deadLetter     DeadLetter    // optional
 	globalWorkers  int
 	perDomainLimit int
 	maxDepth       int
@@ -63,6 +78,8 @@ type Config struct {
 	Robots RobotsChecker
 	// Limiter, when set, paces requests per domain before each fetch.
 	Limiter RateLimiter
+	// DeadLetter, when set, records URLs that permanently fail to fetch.
+	DeadLetter DeadLetter
 }
 
 // New builds a Pool. f and fetcher must be non-nil.
@@ -82,6 +99,7 @@ func New(f *frontier.Frontier, fetcher PageFetcher, cfg Config) *Pool {
 		fetcher:        fetcher,
 		robots:         cfg.Robots,
 		limiter:        cfg.Limiter,
+		deadLetter:     cfg.DeadLetter,
 		globalWorkers:  cfg.GlobalWorkers,
 		perDomainLimit: cfg.PerDomainLimit,
 		maxDepth:       cfg.MaxDepth,
@@ -113,7 +131,7 @@ func (p *Pool) workerLoop(ctx context.Context) {
 }
 
 func (p *Pool) process(ctx context.Context, item frontier.Item) {
-	defer p.frontier.Done()
+	defer p.frontier.Done(item.URL)
 
 	domain, err := urlutil.Domain(item.URL)
 	if err != nil {
@@ -153,6 +171,15 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 	links, err := p.fetcher.Fetch(ctx, item.URL)
 	if err != nil {
 		p.logger.Warn("fetch failed", "url", item.URL, "domain", domain, "error", err)
+		if p.deadLetter != nil {
+			attempts := 1
+			if ac, ok := err.(attemptCounter); ok {
+				attempts = ac.AttemptCount()
+			}
+			if derr := p.deadLetter.Record(item.URL, domain, item.Depth, attempts, err); derr != nil {
+				p.logger.Warn("failed to record dead-letter entry", "url", item.URL, "error", derr)
+			}
+		}
 		return
 	}
 

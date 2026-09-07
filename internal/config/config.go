@@ -6,29 +6,28 @@ import "time"
 
 // Config is the root configuration for the crawler.
 type Config struct {
-	Crawl      CrawlConfig      `yaml:"crawl"`
+	Crawl       CrawlConfig       `yaml:"crawl"`
 	Concurrency ConcurrencyConfig `yaml:"concurrency"`
-	RateLimit  RateLimitConfig  `yaml:"rate_limit"`
-	Timeouts   TimeoutsConfig   `yaml:"timeouts"`
-	Retry      RetryConfig      `yaml:"retry"`
-	Breaker    BreakerConfig    `yaml:"circuit_breaker"`
-	Robots     RobotsConfig     `yaml:"robots"`
-	Storage    StorageConfig    `yaml:"storage"`
-	Server     ServerConfig     `yaml:"server"`
-	Logging    LoggingConfig    `yaml:"logging"`
+	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
+	Timeouts    TimeoutsConfig    `yaml:"timeouts"`
+	Retry       RetryConfig       `yaml:"retry"`
+	Breaker     BreakerConfig     `yaml:"circuit_breaker"`
+	Robots      RobotsConfig      `yaml:"robots"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Server      ServerConfig      `yaml:"server"`
+	Logging     LoggingConfig     `yaml:"logging"`
 }
 
 // CrawlConfig controls crawl scope and boundaries.
 type CrawlConfig struct {
-	SeedURLs       []string      `yaml:"seed_urls"`
-	AllowedDomains []string      `yaml:"allowed_domains"`
-	MaxDepth       int           `yaml:"max_depth"`
-	UserAgent      string        `yaml:"user_agent"`
-	MaxBodyBytes   int64         `yaml:"max_body_bytes"`
-	MaxRedirects   int           `yaml:"max_redirects"`
-	Deadline       time.Duration `yaml:"deadline"`
-	HonorNofollow  bool          `yaml:"honor_nofollow"`
-	HonorNoindex   bool          `yaml:"honor_noindex"`
+	SeedURLs       []string `yaml:"seed_urls"`
+	AllowedDomains []string `yaml:"allowed_domains"`
+	MaxDepth       int      `yaml:"max_depth"`
+	UserAgent      string   `yaml:"user_agent"`
+	MaxBodyBytes   int64    `yaml:"max_body_bytes"`
+	MaxRedirects   int      `yaml:"max_redirects"`
+	HonorNofollow  bool     `yaml:"honor_nofollow"`
+	HonorNoindex   bool     `yaml:"honor_noindex"`
 }
 
 // ConcurrencyConfig controls worker pool sizing.
@@ -46,11 +45,11 @@ type RateLimitConfig struct {
 // TimeoutsConfig controls timeouts at every network layer plus the overall
 // crawl deadline.
 type TimeoutsConfig struct {
-	DNS       time.Duration `yaml:"dns"`
-	Connect   time.Duration `yaml:"connect"`
-	TLS       time.Duration `yaml:"tls"`
-	Request   time.Duration `yaml:"request"`
-	Overall   time.Duration `yaml:"overall"`
+	DNS     time.Duration `yaml:"dns"`
+	Connect time.Duration `yaml:"connect"`
+	TLS     time.Duration `yaml:"tls"`
+	Request time.Duration `yaml:"request"`
+	Overall time.Duration `yaml:"overall"`
 }
 
 // RetryConfig controls retry/backoff behavior on transient errors.
@@ -104,10 +103,10 @@ type LocalBlobConfig struct {
 
 // S3BlobConfig configures the S3 blob store.
 type S3BlobConfig struct {
-	Bucket    string `yaml:"bucket"`
-	Region    string `yaml:"region"`
-	Prefix    string `yaml:"prefix"`
-	Endpoint  string `yaml:"endpoint"` // for S3-compatible services; empty uses AWS default
+	Bucket   string `yaml:"bucket"`
+	Region   string `yaml:"region"`
+	Prefix   string `yaml:"prefix"`
+	Endpoint string `yaml:"endpoint"` // for S3-compatible services; empty uses AWS default
 }
 
 // ServerConfig controls the metrics/health HTTP server.

@@ -18,7 +18,7 @@ func TestDoneAutoClosesWhenPendingReachesZero(t *testing.T) {
 		t.Fatalf("Next() = %+v, %v; want a, true", item, ok)
 	}
 
-	f.Done()
+	f.Done(item.URL)
 
 	// Frontier should now be auto-closed with nothing left: Next returns false.
 	if _, ok := f.Next(ctx); ok {
@@ -36,10 +36,11 @@ func TestDoneDoesNotCloseWhileWorkStillPending(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, ok := f.Next(ctx); !ok {
+	first, ok := f.Next(ctx)
+	if !ok {
 		t.Fatalf("expected first Next() to succeed")
 	}
-	f.Done() // one of two pending items done; frontier must stay open
+	f.Done(first.URL) // one of two pending items done; frontier must stay open
 
 	item, ok := f.Next(ctx)
 	if !ok {
@@ -66,13 +67,13 @@ func TestFollowUpAddBeforeDoneKeepsFrontierOpen(t *testing.T) {
 	if _, err := f.Add("https://example.com/b", item.Depth+1); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	f.Done() // completes "a", but "b" is now pending
+	f.Done(item.URL) // completes "a", but "b" is now pending
 
 	next, ok := f.Next(ctx)
 	if !ok || next.URL != "https://example.com/b" {
 		t.Fatalf("Next() = %+v, %v; want b, true", next, ok)
 	}
-	f.Done()
+	f.Done(next.URL)
 
 	if _, ok := f.Next(ctx); ok {
 		t.Fatalf("expected frontier to auto-close once all pending work is Done")
@@ -85,7 +86,8 @@ func TestDoneUnblocksWaitingWorkers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	ctx := context.Background()
-	if _, ok := f.Next(ctx); !ok {
+	item, ok := f.Next(ctx)
+	if !ok {
 		t.Fatalf("expected Next() to succeed")
 	}
 
@@ -96,7 +98,7 @@ func TestDoneUnblocksWaitingWorkers(t *testing.T) {
 	}()
 
 	time.Sleep(20 * time.Millisecond)
-	f.Done() // pending drops to 0: auto-close should wake the blocked Next()
+	f.Done(item.URL) // pending drops to 0: auto-close should wake the blocked Next()
 
 	select {
 	case ok := <-doneCh:

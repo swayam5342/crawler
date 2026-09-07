@@ -11,7 +11,6 @@ func Default() Config {
 			UserAgent:     "web_crawler/1.0 (+https://example.com/bot)",
 			MaxBodyBytes:  10 << 20, // 10 MiB
 			MaxRedirects:  10,
-			Deadline:      1 * time.Hour,
 			HonorNofollow: true,
 			HonorNoindex:  true,
 		},
