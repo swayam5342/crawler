@@ -5,9 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/swayamsb50/web_crawler/internal/config"
+	"github.com/swayamsb50/web_crawler/internal/frontier"
+	"github.com/swayamsb50/web_crawler/internal/ratelimit"
+	"github.com/swayamsb50/web_crawler/internal/robots"
 )
 
 func main() {
@@ -36,8 +40,28 @@ func run() error {
 		"seed_urls", len(cfg.Crawl.SeedURLs),
 	)
 
-	// TODO: wire up frontier, fetcher, storage, and worker pool (crawler package).
-	logger.Info("crawler scaffold ready; pipeline not yet implemented")
+	filter := frontier.NewDomainFilter(cfg.Crawl.AllowedDomains)
+	f := frontier.New(filter)
+	for _, seed := range cfg.Crawl.SeedURLs {
+		if _, err := f.Add(seed, 0); err != nil {
+			logger.Warn("skipping invalid seed URL", "url", seed, "error", err)
+		}
+	}
+
+	robotsChecker := robots.New(http.DefaultClient, cfg.Crawl.UserAgent, cfg.Robots.CacheTTL, cfg.Robots.Timeout)
+	limiter := ratelimit.New(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.Burst)
+
+	logger.Info("politeness layer ready",
+		"allowed_domains", cfg.Crawl.AllowedDomains,
+		"robots_cache_ttl", cfg.Robots.CacheTTL,
+		"default_rate_limit_rps", cfg.RateLimit.RequestsPerSecond,
+	)
+	_ = robotsChecker
+	_ = limiter
+
+	// TODO: wire up the fetcher (HTTP client with retries/timeouts/circuit
+	// breaker) and storage backend, then run crawler.Pool.
+	logger.Info("crawler scaffold ready; fetch pipeline not yet implemented")
 
 	return nil
 }

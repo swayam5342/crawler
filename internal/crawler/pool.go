@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/swayamsb50/web_crawler/internal/frontier"
 	"github.com/swayamsb50/web_crawler/internal/urlutil"
@@ -18,12 +19,28 @@ type PageFetcher interface {
 	Fetch(ctx context.Context, rawURL string) (links []string, err error)
 }
 
+// RobotsChecker answers robots.txt allow/disallow and Crawl-delay questions
+// for a URL. The concrete implementation lives in the robots package.
+type RobotsChecker interface {
+	Allowed(ctx context.Context, rawURL string) (bool, error)
+	CrawlDelay(ctx context.Context, rawURL string) (delay time.Duration, ok bool, err error)
+}
+
+// RateLimiter paces requests per domain. The concrete implementation lives
+// in the ratelimit package.
+type RateLimiter interface {
+	Wait(ctx context.Context, domain string) error
+	SetRate(domain string, requestsPerSecond float64, burst int)
+}
+
 // Pool drives a fixed number of worker goroutines that pull URLs from a
 // Frontier, fetch them (subject to a per-domain concurrency cap), and push
 // newly discovered links back into the Frontier.
 type Pool struct {
 	frontier       *frontier.Frontier
 	fetcher        PageFetcher
+	robots         RobotsChecker // optional
+	limiter        RateLimiter   // optional
 	globalWorkers  int
 	perDomainLimit int
 	maxDepth       int
@@ -39,6 +56,13 @@ type Config struct {
 	PerDomainLimit int
 	MaxDepth       int
 	Logger         *slog.Logger
+
+	// Robots, when set, is consulted before every fetch: disallowed URLs
+	// are skipped, and a Crawl-delay directive overrides Limiter's rate
+	// for that domain.
+	Robots RobotsChecker
+	// Limiter, when set, paces requests per domain before each fetch.
+	Limiter RateLimiter
 }
 
 // New builds a Pool. f and fetcher must be non-nil.
@@ -56,6 +80,8 @@ func New(f *frontier.Frontier, fetcher PageFetcher, cfg Config) *Pool {
 	return &Pool{
 		frontier:       f,
 		fetcher:        fetcher,
+		robots:         cfg.Robots,
+		limiter:        cfg.Limiter,
 		globalWorkers:  cfg.GlobalWorkers,
 		perDomainLimit: cfg.PerDomainLimit,
 		maxDepth:       cfg.MaxDepth,
@@ -95,6 +121,16 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 		return
 	}
 
+	if p.robots != nil {
+		allowed, err := p.robots.Allowed(ctx, item.URL)
+		if err != nil {
+			p.logger.Warn("robots.txt check failed; allowing by default", "url", item.URL, "error", err)
+		} else if !allowed {
+			p.logger.Debug("blocked by robots.txt", "url", item.URL)
+			return
+		}
+	}
+
 	sem := p.domainSemaphore(domain)
 	select {
 	case sem <- struct{}{}:
@@ -102,6 +138,17 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 		return
 	}
 	defer func() { <-sem }()
+
+	if p.robots != nil && p.limiter != nil {
+		if delay, ok, err := p.robots.CrawlDelay(ctx, item.URL); err == nil && ok {
+			p.limiter.SetRate(domain, 1/delay.Seconds(), 1)
+		}
+	}
+	if p.limiter != nil {
+		if err := p.limiter.Wait(ctx, domain); err != nil {
+			return
+		}
+	}
 
 	links, err := p.fetcher.Fetch(ctx, item.URL)
 	if err != nil {
