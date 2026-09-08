@@ -89,6 +89,13 @@ func TestSavePageUpsertsOnConflict(t *testing.T) {
 	}
 }
 
+func TestPing(t *testing.T) {
+	b := openTestBackend(t)
+	if err := b.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping() error: %v", err)
+	}
+}
+
 func TestGetPageNotFound(t *testing.T) {
 	b := openTestBackend(t)
 	ctx := context.Background()

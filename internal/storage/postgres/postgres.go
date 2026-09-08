@@ -112,6 +112,14 @@ FROM pages WHERE url = $1
 	return p, true, nil
 }
 
+// Ping implements storage.Backend.
+func (b *Backend) Ping(ctx context.Context) error {
+	if err := b.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("pinging postgres: %w", err)
+	}
+	return nil
+}
+
 // Close implements storage.Backend.
 func (b *Backend) Close() error {
 	b.pool.Close()

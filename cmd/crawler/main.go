@@ -18,6 +18,8 @@ import (
 	"github.com/swayamsb50/web_crawler/internal/extractor"
 	"github.com/swayamsb50/web_crawler/internal/fetcher"
 	"github.com/swayamsb50/web_crawler/internal/frontier"
+	"github.com/swayamsb50/web_crawler/internal/health"
+	"github.com/swayamsb50/web_crawler/internal/metrics"
 	"github.com/swayamsb50/web_crawler/internal/ratelimit"
 	"github.com/swayamsb50/web_crawler/internal/robots"
 	"github.com/swayamsb50/web_crawler/internal/storage/blobstore"
@@ -132,6 +134,29 @@ func run() error {
 		logger:        logger,
 	}
 
+	// Observability: Prometheus metrics + health check, served over HTTP
+	// alongside the crawl.
+	m := metrics.New()
+	m.SetQueueDepthFunc(func() float64 { return float64(f.Len()) })
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", m.Handler())
+	mux.Handle("/healthz", health.Handler(5*time.Second, map[string]health.Check{
+		"postgres": storageBackend.Ping,
+	}))
+	metricsServer := &http.Server{Addr: cfg.Server.Addr, Handler: mux}
+	go func() {
+		logger.Info("metrics/health server listening", "addr", cfg.Server.Addr)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Warn("metrics/health server stopped unexpectedly", "error", err)
+		}
+	}()
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		metricsServer.Shutdown(shutdownCtx) //nolint:errcheck
+	}()
+
 	pool := crawler.New(f, fetch, crawler.Config{
 		GlobalWorkers:  cfg.Concurrency.Global,
 		PerDomainLimit: cfg.Concurrency.PerDomain,
@@ -140,6 +165,7 @@ func run() error {
 		Robots:         robotsChecker,
 		Limiter:        limiter,
 		DeadLetter:     deadLetterAdapter{sink: deadLetterSink},
+		Metrics:        m,
 	})
 
 	stopCheckpointing := make(chan struct{})

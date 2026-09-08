@@ -25,6 +25,8 @@ type Page struct {
 type Backend interface {
 	// SavePage upserts p, keyed by p.URL.
 	SavePage(ctx context.Context, p Page) error
+	// Ping checks connectivity to the underlying store, for health checks.
+	Ping(ctx context.Context) error
 	// Close releases any underlying resources (connections, files, etc).
 	Close() error
 }

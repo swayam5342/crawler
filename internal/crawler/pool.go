@@ -47,6 +47,12 @@ type attemptCounter interface {
 	AttemptCount() int
 }
 
+// Metrics records per-domain fetch outcomes. The concrete implementation
+// lives in the metrics package.
+type Metrics interface {
+	RecordFetch(domain string, success bool)
+}
+
 // Pool drives a fixed number of worker goroutines that pull URLs from a
 // Frontier, fetch them (subject to a per-domain concurrency cap), and push
 // newly discovered links back into the Frontier.
@@ -56,6 +62,7 @@ type Pool struct {
 	robots         RobotsChecker // optional
 	limiter        RateLimiter   // optional
 	deadLetter     DeadLetter    // optional
+	metrics        Metrics       // optional
 	globalWorkers  int
 	perDomainLimit int
 	maxDepth       int
@@ -80,6 +87,8 @@ type Config struct {
 	Limiter RateLimiter
 	// DeadLetter, when set, records URLs that permanently fail to fetch.
 	DeadLetter DeadLetter
+	// Metrics, when set, records per-domain fetch outcomes.
+	Metrics Metrics
 }
 
 // New builds a Pool. f and fetcher must be non-nil.
@@ -100,6 +109,7 @@ func New(f *frontier.Frontier, fetcher PageFetcher, cfg Config) *Pool {
 		robots:         cfg.Robots,
 		limiter:        cfg.Limiter,
 		deadLetter:     cfg.DeadLetter,
+		metrics:        cfg.Metrics,
 		globalWorkers:  cfg.GlobalWorkers,
 		perDomainLimit: cfg.PerDomainLimit,
 		maxDepth:       cfg.MaxDepth,
@@ -169,6 +179,9 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 	}
 
 	links, err := p.fetcher.Fetch(ctx, item.URL)
+	if p.metrics != nil {
+		p.metrics.RecordFetch(domain, err == nil)
+	}
 	if err != nil {
 		p.logger.Warn("fetch failed", "url", item.URL, "domain", domain, "error", err)
 		if p.deadLetter != nil {
