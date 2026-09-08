@@ -59,7 +59,7 @@ Package boundaries mirror the crawl pipeline; each is independently unit
 tested and most are wired together only through small interfaces, so any
 piece can be swapped without touching the others.
 
-```
+```text
 cmd/crawler          wiring: reads config, constructs every component, runs
                      the crawl, serves /metrics and /healthz, handles
                      SIGINT/SIGTERM
@@ -137,7 +137,7 @@ tunable has a safe default — the crawler runs with no config file at all
 ### Key sections (`configs/config.yaml`)
 
 | Section | Purpose |
-|---|---|
+| --- | --- |
 | `crawl` | seed URLs, allowed domains, max depth, User-Agent, body size cap, redirect limit, nofollow/noindex handling |
 | `concurrency` | global and per-domain worker limits |
 | `rate_limit` | default requests/sec and burst per domain |
