@@ -112,6 +112,10 @@ type S3BlobConfig struct {
 // ServerConfig controls the metrics/health HTTP server.
 type ServerConfig struct {
 	Addr string `yaml:"addr"`
+	// GracePeriod bounds how long a SIGINT/SIGTERM shutdown waits for
+	// in-flight fetches to finish before forcing cancellation, and how
+	// long the metrics/health HTTP server is given to shut down.
+	GracePeriod time.Duration `yaml:"grace_period"`
 }
 
 // LoggingConfig controls structured logging output.

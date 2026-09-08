@@ -15,5 +15,19 @@ services:
       timeout: 5s
       retries: 5
 
+  crawler:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CRAWLER_POSTGRES_DSN: "postgres://crawler:crawler@postgres:5432/crawler?sslmode=disable"
+    ports:
+      - "9090:9090"
+    volumes:
+      - crawler_data:/app/data
+    stop_grace_period: 60s
+
 volumes:
   postgres_data:
+  crawler_data:

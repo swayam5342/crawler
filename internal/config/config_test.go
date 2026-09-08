@@ -115,6 +115,7 @@ func TestValidate(t *testing.T) {
 		}, false},
 		{"bad log level", func(c *Config) { c.Logging.Level = "verbose" }, true},
 		{"bad log format", func(c *Config) { c.Logging.Format = "xml" }, true},
+		{"zero grace period", func(c *Config) { c.Server.GracePeriod = 0 }, true},
 	}
 
 	for _, tt := range tests {

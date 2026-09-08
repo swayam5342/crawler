@@ -59,7 +59,8 @@ func Default() Config {
 			},
 		},
 		Server: ServerConfig{
-			Addr: ":9090",
+			Addr:        ":9090",
+			GracePeriod: 30 * time.Second,
 		},
 		Logging: LoggingConfig{
 			Level:  "info",

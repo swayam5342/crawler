@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/swayamsb50/web_crawler/internal/breaker"
@@ -104,11 +106,14 @@ func run() error {
 	}
 	defer deadLetterSink.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
-	defer cancel()
+	// Setup calls (connecting, not crawling) get their own short-lived
+	// context, independent of the crawl's overall deadline or shutdown
+	// signal handling below.
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer setupCancel()
 
 	// Data pipeline: structured storage (Postgres) + raw body blob store.
-	storageBackend, err := postgres.Open(ctx, postgres.Config{
+	storageBackend, err := postgres.Open(setupCtx, postgres.Config{
 		DSN:             cfg.Storage.Postgres.DSN,
 		MaxOpenConns:    int32(cfg.Storage.Postgres.MaxOpenConns),
 		MaxIdleConns:    int32(cfg.Storage.Postgres.MaxIdleConns),
@@ -119,7 +124,7 @@ func run() error {
 	}
 	defer storageBackend.Close()
 
-	blobStore, err := newBlobStore(ctx, cfg.Storage.BlobStore)
+	blobStore, err := newBlobStore(setupCtx, cfg.Storage.BlobStore)
 	if err != nil {
 		return fmt.Errorf("initializing blob store: %w", err)
 	}
@@ -152,7 +157,7 @@ func run() error {
 		}
 	}()
 	defer func() {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.GracePeriod)
 		defer shutdownCancel()
 		metricsServer.Shutdown(shutdownCtx) //nolint:errcheck
 	}()
@@ -172,8 +177,40 @@ func run() error {
 	checkpointDone := make(chan struct{})
 	go periodicCheckpoint(f, checkpointStore, logger, 10*time.Second, stopCheckpointing, checkpointDone)
 
+	// workCtx bounds the crawl itself (fetches, frontier draining) by the
+	// overall deadline. It is deliberately NOT canceled immediately on
+	// SIGINT/SIGTERM: graceful shutdown instead closes the frontier (so no
+	// new work is picked up) and lets in-flight fetches finish naturally,
+	// only force-canceling workCtx if they don't finish within GracePeriod.
+	workCtx, cancelWork := context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
+	defer cancelWork()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	shutdownWatchDone := make(chan struct{})
+	go func() {
+		defer close(shutdownWatchDone)
+		select {
+		case sig := <-sigCh:
+			logger.Info("received shutdown signal; draining in-flight requests", "signal", sig.String(), "grace_period", cfg.Server.GracePeriod)
+			f.Close() // stop handing out new work; in-flight fetches keep running
+			select {
+			case <-time.After(cfg.Server.GracePeriod):
+				logger.Warn("shutdown grace period elapsed; forcing cancellation of in-flight requests")
+				cancelWork()
+			case <-workCtx.Done():
+			}
+		case <-workCtx.Done():
+		}
+	}()
+
 	logger.Info("starting crawl", "overall_deadline", cfg.Timeouts.Overall)
-	pool.Run(ctx)
+	pool.Run(workCtx)
+	cancelWork() // unblock the shutdown watcher if the crawl finished on its own
+	<-shutdownWatchDone
+
 	close(stopCheckpointing)
 	<-checkpointDone
 

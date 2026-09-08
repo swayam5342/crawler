@@ -97,6 +97,7 @@ func applyEnvOverrides(cfg *Config) error {
 		{"CRAWLER_BLOB_STORE_S3_ENDPOINT", func(v string) error { cfg.Storage.BlobStore.S3.Endpoint = v; return nil }},
 
 		{"CRAWLER_SERVER_ADDR", func(v string) error { cfg.Server.Addr = v; return nil }},
+		{"CRAWLER_SERVER_GRACE_PERIOD", durationSetter(&cfg.Server.GracePeriod)},
 
 		{"CRAWLER_LOG_LEVEL", func(v string) error { cfg.Logging.Level = v; return nil }},
 		{"CRAWLER_LOG_FORMAT", func(v string) error { cfg.Logging.Format = v; return nil }},

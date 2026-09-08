@@ -56,6 +56,7 @@ storage:
 
 server:
   addr: ":9090"
+  grace_period: 30s
 
 logging:
   level: info

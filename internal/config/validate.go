@@ -79,6 +79,9 @@ func (c Config) Validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("server.addr must not be empty")
 	}
+	if c.Server.GracePeriod <= 0 {
+		return fmt.Errorf("server.grace_period must be > 0")
+	}
 	switch c.Logging.Level {
 	case "debug", "info", "warn", "error":
 	default:
