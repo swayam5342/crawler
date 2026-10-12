@@ -1,6 +1,6 @@
 crawl:
-  seed_urls: []
-  allowed_domains: []
+  seed_urls: ["https://automworx.com"]
+  allowed_domains: ["automworx.com"]
   max_depth: 5
   user_agent: "web_crawler/1.0 (+https://example.com/bot)"
   max_body_bytes: 10485760
