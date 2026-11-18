@@ -26,10 +26,22 @@ docker compose up --build
 ```
 
 This starts Postgres (with a health check gating crawler startup), the
-crawler using `configs/config.yaml` (API/metrics/health server on `:9090`),
-and the web dashboard on `:3000`. Open <http://localhost:3000/dashboard> and
-add a URL to start crawling. Crawled page data and blobs persist in the `postgres_data` and
+crawler using `configs/config.yaml`, and the web dashboard. Only the
+dashboard is published, on <http://localhost:8067> (localhost only);
+Postgres and the crawler's API/metrics/health server (`crawler:9090`) stay
+on the internal compose network. Open the dashboard and add a URL to start
+crawling. Crawled page data and blobs persist in the `postgres_data` and
 `crawler_data` named volumes.
+
+If the build stops with `additional privileges requested: pass
+"--allow=fs.read=..."` (Compose's bake builder on Windows), build the
+images directly and start without rebuilding:
+
+```sh
+docker build -t web_crawler-crawler .
+docker build -t web_crawler-web ./web
+docker compose -p web_crawler up -d --no-build
+```
 
 To point it at real seed URLs, override config via environment variables
 (see [Configuration](#configuration)) — for example, in a

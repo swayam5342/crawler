@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: crawler
       POSTGRES_PASSWORD: crawler
       POSTGRES_DB: crawler
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +22,8 @@ services:
       CRAWLER_POSTGRES_DSN: "postgres://crawler:crawler@postgres:5432/crawler?sslmode=disable"
       # Shared with the dashboard below; change it for anything but local use.
       CRAWLER_API_TOKEN: "${CRAWLER_API_TOKEN:-change-me-local-token}"
-    ports:
-      - "9090:9090"
+    # Not published: only the dashboard talks to the API, over the compose
+    # network. /metrics and /healthz are reachable inside it at crawler:9090.
     volumes:
       - crawler_data:/app/data
     stop_grace_period: 60s
@@ -40,7 +38,7 @@ services:
       # Set to require basic auth (user "admin") on /dashboard.
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-}"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:8067:3000"
 
 volumes:
   postgres_data:
