@@ -8,7 +8,7 @@ visibility.
 ## Contents
 
 - [Quick start](#quick-start)
-- [Dashboard and website](#dashboard-and-website)
+- [Dashboard](#dashboard)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Data pipeline](#data-pipeline)
@@ -55,15 +55,14 @@ go run ./cmd/crawler --config configs/config.yaml
 The binary needs write access to `./data` (checkpoint, dead-letter log, and
 local blob storage default there).
 
-## Dashboard and website
+## Dashboard
 
-`web/` is a Next.js app with two parts:
+`web/` is a Next.js dashboard (served at `/dashboard`; `/` redirects there)
+for controlling a running crawler: add URLs, pause and resume, browse
+crawled pages, inspect the queue, retry or discard failed URLs, edit the
+allowed domains, reset state, and see per-domain status and recent activity.
 
-- `/` is a public page explaining what the crawler does.
-- `/dashboard` controls a running crawler: add URLs, pause and resume,
-  browse crawled pages, inspect the queue, retry or discard failed URLs,
-  edit the domain allow-list, reset state, and watch live throughput,
-  per-domain health and recent activity.
+The project's showcase website lives separately on the `website` branch.
 
 The dashboard needs the crawler running in service mode
 (`crawl.keep_alive: true`, the default in `configs/config.yaml`), so it

@@ -8,9 +8,9 @@ import { usePoll } from "@/lib/usePoll";
 
 const RESET_ITEMS: { key: keyof ResetOptions; label: string; hint: string }[] = [
   { key: "queue", label: "Queue and history", hint: "Empties the queue and forgets which URLs were seen, so they can be crawled again." },
-  { key: "dead_letters", label: "Failure log", hint: "Deletes every failed URL without retrying it." },
+  { key: "dead_letters", label: "Failed URLs", hint: "Deletes the list of failed URLs without retrying them." },
   { key: "pages", label: "Stored pages", hint: "Deletes all page records from the database. Raw page bodies on disk or S3 are kept." },
-  { key: "stats", label: "Counters", hint: "Zeroes the numbers, chart and activity feed on the Overview." },
+  { key: "stats", label: "Counters", hint: "Sets the numbers and recent activity on the Overview back to zero." },
 ];
 
 function toYAML(value: unknown, indent = 0): string {
@@ -79,22 +79,22 @@ export default function Settings() {
       <div className={`${s.grid} ${s.gridTwo}`}>
         <div className={s.grid}>
           <Panel title="Allowed domains">
-            <p style={{ color: "var(--ink-2)", marginBottom: 14 }}>
+            <p className={s.muted} style={{ marginBottom: 12 }}>
               {domains.length
-                ? "Only these domains and their subdomains are crawled. Links anywhere else are ignored."
-                : "The list is empty, so links to any domain are followed. Add a domain to keep the crawl on specific sites."}
+                ? "Only these domains and their subdomains are crawled. Links to other sites are ignored."
+                : "No domains are listed, so links to any site are followed. Add a domain to limit the crawl to specific sites."}
             </p>
             {domains.length > 0 && (
-              <div className={s.chips} style={{ marginBottom: 16 }}>
+              <ul className={s.domainList}>
                 {domains.map((d) => (
-                  <span key={d} className={s.chip}>
+                  <li key={d}>
                     {d}
-                    <button type="button" onClick={() => removeDomain(d)} aria-label={`Remove ${d}`}>
-                      ×
+                    <button type="button" className="btn btn-sm btn-quiet" onClick={() => removeDomain(d)} aria-label={`Remove ${d}`}>
+                      Remove
                     </button>
-                  </span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
             <form className={s.quickAdd} style={{ marginBottom: 0 }} onSubmit={addDomain}>
               <label htmlFor="domain" className="visually-hidden">

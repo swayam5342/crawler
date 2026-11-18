@@ -22,7 +22,7 @@ export default function Queue() {
     <>
       <PageHead
         title="Queue"
-        description="URLs waiting to be fetched, in the order they'll be picked up. Removing one skips it for good: it stays marked as seen."
+        description="URLs waiting to be fetched, in the order they will be fetched. Removing a URL skips it; it won't be added again automatically."
       />
 
       <div className={s.grid}>
@@ -41,12 +41,12 @@ export default function Queue() {
               </tbody>
             </table>
           ) : (
-            <Empty title="Nothing in flight" />
+            <Empty title="Nothing is being fetched right now." />
           )}
         </Panel>
 
         <Panel
-          title="Waiting"
+          title="Waiting in queue"
           meta={data ? (data.total_queued > LIMIT ? `showing ${LIMIT} of ${num(data.total_queued)}` : num(data.total_queued)) : undefined}
           flush
         >

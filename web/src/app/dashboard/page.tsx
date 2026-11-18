@@ -3,21 +3,20 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useDashboard } from "@/components/dashboard/Shell";
-import { Throughput } from "@/components/dashboard/Throughput";
-import { BreakerBadge, Empty, PageHead, Panel, URLText, styles as s } from "@/components/dashboard/ui";
+import { Badge, BreakerBadge, Empty, PageHead, Panel, URLText, styles as s } from "@/components/dashboard/ui";
 import { crawler, type CrawlEvent } from "@/lib/api";
 import { ago, duration, num, pct, rate } from "@/lib/format";
 import { usePoll } from "@/lib/usePoll";
 
-const OUTCOME_COLOR: Record<CrawlEvent["outcome"], string> = {
-  success: "var(--moss)",
-  failure: "var(--brick)",
-  blocked: "var(--amber)",
+const RESULT: Record<CrawlEvent["outcome"], { tone: "ok" | "bad" | "warn"; label: string }> = {
+  success: { tone: "ok", label: "Fetched" },
+  failure: { tone: "bad", label: "Failed" },
+  blocked: { tone: "warn", label: "Blocked by robots.txt" },
 };
 
 export default function Overview() {
   const { status, run } = useDashboard();
-  const { data: feed } = usePoll(() => crawler.events(60), 2000);
+  const { data: feed } = usePoll(() => crawler.events(50), 2000);
   const [url, setUrl] = useState("");
 
   async function quickAdd(e: React.FormEvent) {
@@ -29,8 +28,8 @@ export default function Overview() {
       (r) => {
         const first = r.results[0];
         if (!first) return "Nothing to add.";
-        if (first.status === "queued") return `Queued ${first.url}`;
-        if (first.status === "duplicate") return "Already crawled or queued. Use Add URLs with Recrawl to fetch it again.";
+        if (first.status === "queued") return `Added ${first.url} to the queue.`;
+        if (first.status === "duplicate") return "That URL was already crawled or is in the queue. To fetch it again, use Add URLs and tick Recrawl.";
         if (first.status === "out_of_scope") return "That domain isn't allowed. Add it under Settings first.";
         return first.error ?? `Not added: ${first.status}`;
       },
@@ -40,6 +39,7 @@ export default function Overview() {
 
   const t = status?.totals;
   const fr = status?.frontier;
+  const dash = "–";
 
   return (
     <>
@@ -47,8 +47,8 @@ export default function Overview() {
         title="Overview"
         description={
           status
-            ? `Up ${duration(status.uptime_seconds)}. ${status.keep_alive ? "Runs as a service: it keeps waiting for new URLs." : "Batch mode: exits when the queue is empty."}`
-            : "Connecting to the crawler…"
+            ? `Running for ${duration(status.uptime_seconds)}. ${status.keep_alive ? "The crawler keeps running when the queue is empty." : "The crawler stops when the queue is empty."}`
+            : undefined
         }
       />
 
@@ -61,137 +61,128 @@ export default function Overview() {
           className="input"
           type="text"
           inputMode="url"
-          placeholder="https://example.com/ (paste a URL to crawl)"
+          placeholder="Enter a URL to crawl, e.g. https://example.com/"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           autoComplete="off"
         />
         <button className="btn btn-primary" type="submit" disabled={!url.trim()}>
-          Crawl this URL
+          Add to queue
         </button>
       </form>
 
-      <dl className={`${s.panel} ${s.figures}`}>
-        <div className={s.figure}>
-          <dt>Pages fetched</dt>
-          <dd>{t ? num(t.success) : "–"}</dd>
-          <small>{t ? `${num(t.links_found)} links found` : " "}</small>
+      <dl className={s.stats}>
+        <div className={s.stat}>
+          <dt>Pages crawled</dt>
+          <dd>{t ? num(t.success) : dash}</dd>
         </div>
-        <div className={s.figure}>
+        <div className={s.stat}>
           <dt>Pages per second</dt>
-          <dd>{status ? rate(status.pages_per_second) : "–"}</dd>
-          <small>last 10 seconds</small>
+          <dd>{status ? rate(status.pages_per_second) : dash}</dd>
         </div>
-        <div className={s.figure}>
-          <dt>Queued</dt>
-          <dd>{fr ? num(fr.queued) : "–"}</dd>
-          <small>{fr ? `${num(fr.visited)} URLs seen` : " "}</small>
+        <div className={s.stat}>
+          <dt>In queue</dt>
+          <dd>{fr ? num(fr.queued) : dash}</dd>
         </div>
-        <div className={s.figure}>
+        <div className={s.stat}>
           <dt>Fetching now</dt>
-          <dd>{fr ? num(fr.in_flight) : "–"}</dd>
-          <small>{t ? `${num(t.blocked)} blocked by robots.txt` : " "}</small>
+          <dd>{fr ? num(fr.in_flight) : dash}</dd>
         </div>
-        <div className={`${s.figure} ${status && status.error_rate > 0.1 ? s.figureBad : ""}`}>
-          <dt>Error rate</dt>
-          <dd>{status ? pct(status.error_rate) : "–"}</dd>
-          <small>{t ? `${num(t.failure)} failed requests` : " "}</small>
+        <div className={s.stat}>
+          <dt>Errors</dt>
+          <dd>{t ? `${num(t.failure)} (${pct(status!.error_rate)})` : dash}</dd>
         </div>
-        <div className={`${s.figure} ${status?.dead_letters ? s.figureBad : ""}`}>
-          <dt>Gave up on</dt>
-          <dd>{status ? num(status.dead_letters) : "–"}</dd>
-          <small>
-            {status?.dead_letters ? <Link href="/dashboard/failures">Review failures</Link> : "after all retries"}
-          </small>
+        <div className={s.stat}>
+          <dt>Blocked by robots.txt</dt>
+          <dd>{t ? num(t.blocked) : dash}</dd>
+        </div>
+        <div className={`${s.stat} ${status?.dead_letters ? s.statBad : ""}`}>
+          <dt>Failed URLs</dt>
+          <dd>{status ? num(status.dead_letters) : dash}</dd>
+        </div>
+        <div className={s.stat}>
+          <dt>URLs seen</dt>
+          <dd>{fr ? num(fr.visited) : dash}</dd>
         </div>
       </dl>
+      {!!status?.dead_letters && (
+        <p className={s.hint} style={{ marginTop: -8, marginBottom: 16 }}>
+          {status.dead_letters} URL{status.dead_letters === 1 ? "" : "s"} failed after all retries.{" "}
+          <Link href="/dashboard/failures">Review failed URLs</Link>
+        </p>
+      )}
 
-      <div className={`${s.grid} ${s.gridOverview}`}>
-        <div className={s.grid}>
-          <Panel
-            title="Requests, last 60 seconds"
-            meta={
-              <span className={s.chartLegend}>
-                <span>
-                  <i style={{ background: "var(--moss)" }} />
-                  Fetched
-                </span>
-                <span>
-                  <i style={{ background: "var(--brick)" }} />
-                  Failed
-                </span>
-              </span>
-            }
-          >
-            <Throughput points={status?.throughput ?? []} />
-          </Panel>
-
-          <Panel title="Domains" meta={status ? `${status.domains.length} seen` : undefined} flush>
-            {status && status.domains.length > 0 ? (
-              <div className={s.tableWrap}>
-                <table className={s.table}>
-                  <thead>
-                    <tr>
-                      <th>Domain</th>
-                      <th className={s.num}>Fetched</th>
-                      <th className={s.num}>Failed</th>
-                      <th className={s.num}>Blocked</th>
-                      <th className={s.num}>Avg time</th>
-                      <th>Health</th>
+      <div className={s.grid}>
+        <Panel title="Domains" meta={status ? `${status.domains.length} domain${status.domains.length === 1 ? "" : "s"}` : undefined} flush>
+          {status && status.domains.length > 0 ? (
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
+                  <tr>
+                    <th>Domain</th>
+                    <th className={s.num}>Crawled</th>
+                    <th className={s.num}>Errors</th>
+                    <th className={s.num}>Blocked</th>
+                    <th className={s.num}>Avg response</th>
+                    <th>State</th>
+                    <th>Last error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.domains.map((d) => (
+                    <tr key={d.domain}>
+                      <td className="mono">{d.domain}</td>
+                      <td className={s.num}>{num(d.success)}</td>
+                      <td className={s.num}>{num(d.failure)}</td>
+                      <td className={s.num}>{num(d.blocked)}</td>
+                      <td className={s.num}>{d.avg_duration_ms ? `${num(d.avg_duration_ms)} ms` : dash}</td>
+                      <td>
+                        <BreakerBadge state={d.breaker} />
+                      </td>
+                      <td>{d.last_error ? <span className={s.errorText}>{d.last_error}</span> : <span className={s.muted}>{dash}</span>}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {status.domains.map((d) => (
-                      <tr key={d.domain}>
-                        <td>
-                          <span className="mono">{d.domain}</span>
-                          {d.last_error && d.breaker !== "closed" && <span className={s.errorText}>{d.last_error}</span>}
-                        </td>
-                        <td className={s.num}>{num(d.success)}</td>
-                        <td className={s.num}>{num(d.failure)}</td>
-                        <td className={s.num}>{num(d.blocked)}</td>
-                        <td className={s.num}>{d.avg_duration_ms ? `${num(d.avg_duration_ms)} ms` : "–"}</td>
-                        <td>
-                          <BreakerBadge state={d.breaker} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Empty title="No domains crawled yet">Domains show up here once their first page is fetched.</Empty>
-            )}
-          </Panel>
-        </div>
-
-        <Panel title="Live activity" meta="newest first" flush>
-          {feed && feed.events.length > 0 ? (
-            <ul className={s.feed}>
-              {feed.events.map((e, i) => (
-                <li key={`${e.at}-${e.url}-${i}`}>
-                  <span
-                    className={s.feedDot}
-                    style={{ background: OUTCOME_COLOR[e.outcome] }}
-                    aria-label={e.outcome}
-                    role="img"
-                  />
-                  <span>
-                    <URLText url={e.url} />
-                    {e.error && <span className={s.errorText}>{e.error}</span>}
-                    {e.outcome === "blocked" && <span className={s.errorText} style={{ color: "var(--amber)" }}>Disallowed by robots.txt</span>}
-                  </span>
-                  <span className={s.feedMeta}>
-                    {e.outcome === "success" ? `${e.links} links, ` : ""}
-                    {ago(e.at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <Empty title="Nothing crawled yet">
-              Paste a URL above to start. Activity appears here as pages are fetched.
-            </Empty>
+            <Empty title="No domains crawled yet." />
+          )}
+        </Panel>
+
+        <Panel title="Recent activity" meta="Newest first, updates every 2 seconds" flush>
+          {feed && feed.events.length > 0 ? (
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Result</th>
+                    <th>URL</th>
+                    <th className={s.num}>Links found</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feed.events.map((e, i) => (
+                    <tr key={`${e.at}-${e.url}-${i}`}>
+                      <td className={`${s.nowrap} ${s.muted}`} title={new Date(e.at).toLocaleString()}>
+                        {ago(e.at)}
+                      </td>
+                      <td>
+                        <Badge tone={RESULT[e.outcome].tone}>{RESULT[e.outcome].label}</Badge>
+                      </td>
+                      <td>
+                        <URLText url={e.url} />
+                        {e.error && <span className={s.errorText}>{e.error}</span>}
+                      </td>
+                      <td className={s.num}>{e.outcome === "success" ? e.links : dash}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty title="Nothing crawled yet.">Enter a URL above to start.</Empty>
           )}
         </Panel>
       </div>

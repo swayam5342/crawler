@@ -1,4 +1,3 @@
-import { splitURL } from "@/lib/format";
 import s from "./dashboard.module.css";
 
 export function PageHead({
@@ -36,13 +35,13 @@ export function Panel({
 }) {
   return (
     <section className={`${s.panel} ${className}`}>
-      {title && (
+      {(title || meta) && (
         <div className={s.panelHead}>
-          <h2>{title}</h2>
+          {title ? <h2>{title}</h2> : <span />}
           {meta && <span>{meta}</span>}
         </div>
       )}
-      {flush ? <div style={{ paddingTop: title ? 8 : 0 }}>{children}</div> : <div className={s.panelBody}>{children}</div>}
+      {flush ? children : <div className={s.panelBody}>{children}</div>}
     </section>
   );
 }
@@ -56,21 +55,14 @@ export function Empty({ title, children }: { title: string; children?: React.Rea
   );
 }
 
-/** A URL shown as dark host + muted path, optionally linking to the page. */
+/** A URL in monospace, optionally linking to the page in a new tab. */
 export function URLText({ url, link = true }: { url: string; link?: boolean }) {
-  const { host, rest } = splitURL(url);
-  const body = (
-    <>
-      <span className={s.urlHost}>{host}</span>
-      <span className={s.urlRest}>{rest}</span>
-    </>
-  );
   return link ? (
     <a className={s.url} href={url} target="_blank" rel="noreferrer noopener">
-      {body}
+      {url}
     </a>
   ) : (
-    <span className={s.url}>{body}</span>
+    <span className={s.url}>{url}</span>
   );
 }
 
@@ -81,9 +73,9 @@ export function Badge({ tone = "plain", children }: { tone?: Tone; children: Rea
 }
 
 export function BreakerBadge({ state }: { state?: string }) {
-  if (!state || state === "closed") return <Badge tone="ok">Healthy</Badge>;
-  if (state === "open") return <Badge tone="bad">Cooling down</Badge>;
-  if (state === "half-open") return <Badge tone="warn">Testing</Badge>;
+  if (!state || state === "closed") return <Badge tone="ok">OK</Badge>;
+  if (state === "open") return <Badge tone="bad">Paused (too many errors)</Badge>;
+  if (state === "half-open") return <Badge tone="warn">Retrying</Badge>;
   return <Badge>{state}</Badge>;
 }
 

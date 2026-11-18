@@ -10,7 +10,7 @@ const MAX = 1000;
 const RESULT: Record<AddResult["status"], { tone: "ok" | "warn" | "bad" | "plain"; label: string; why: string }> = {
   queued: { tone: "ok", label: "Queued", why: "" },
   duplicate: { tone: "plain", label: "Already seen", why: "Crawled or queued before. Tick Recrawl to fetch it again." },
-  out_of_scope: { tone: "warn", label: "Out of scope", why: "Its domain isn't on the allow-list." },
+  out_of_scope: { tone: "warn", label: "Domain not allowed", why: "Its domain isn't in the allowed domains list (see Settings)." },
   invalid: { tone: "bad", label: "Invalid", why: "" },
   closed: { tone: "bad", label: "Not accepted", why: "The crawler is shutting down." },
 };
@@ -58,7 +58,7 @@ export default function AddURLs() {
     <>
       <PageHead
         title="Add URLs"
-        description="New URLs start at depth 0, so the crawler follows their links up to the configured max depth."
+        description="The crawler fetches each URL you add, then follows its links up to the maximum depth set in the config."
       />
 
       <div className={`${s.grid} ${s.gridTwo}`}>
@@ -76,7 +76,7 @@ export default function AddURLs() {
                 onChange={(e) => setText(e.target.value)}
                 spellCheck={false}
               />
-              <p className={s.hint} style={tooMany ? { color: "var(--brick)" } : undefined}>
+              <p className={s.hint} style={tooMany ? { color: "var(--danger)" } : undefined}>
                 {tooMany
                   ? `${urls.length} URLs. Submit at most ${MAX} at a time.`
                   : `One per line, or separated by spaces or commas. URLs without a scheme get https://. ${urls.length ? `${urls.length} ready.` : ""}`}
@@ -128,7 +128,7 @@ export default function AddURLs() {
               })}
             </ul>
           ) : (
-            <p className={s.panelBody} style={{ color: "var(--ink-2)" }}>
+            <p className={s.panelBody} style={{ color: "var(--text-muted)" }}>
               After you add URLs, each one is listed here with what happened to it.
             </p>
           )}

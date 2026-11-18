@@ -4,22 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { ApiError, crawler, type Status } from "@/lib/api";
-import { SITE_NAME } from "@/lib/site";
 import { usePoll } from "@/lib/usePoll";
 import s from "./dashboard.module.css";
-
-interface Toast {
-  id: number;
-  text: string;
-  error?: boolean;
-}
 
 interface DashboardCtx {
   status: Status | null;
   statusError: Error | null;
   refreshStatus: () => Promise<void>;
   notify: (text: string, error?: boolean) => void;
-  /** Runs an API action, toasting success text or the error message. */
+  /** Runs an API action, then shows the success text or the error message. */
   run: <T>(action: () => Promise<T>, success?: string | ((r: T) => string)) => Promise<T | undefined>;
 }
 
@@ -31,18 +24,18 @@ export function useDashboard(): DashboardCtx {
   return ctx;
 }
 
-const TABS = [
+const NAV = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/add", label: "Add URLs" },
   { href: "/dashboard/pages", label: "Crawled pages" },
   { href: "/dashboard/queue", label: "Queue" },
-  { href: "/dashboard/failures", label: "Failures" },
+  { href: "/dashboard/failures", label: "Failed URLs" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 
 const STATE_LABEL: Record<string, string> = {
   running: "Crawling",
-  idle: "Waiting for URLs",
+  idle: "Idle, waiting for URLs",
   paused: "Paused",
   stopping: "Shutting down",
   finished: "Finished",
@@ -53,14 +46,14 @@ const STATE_LABEL: Record<string, string> = {
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data: status, error: statusError, refresh } = usePoll(crawler.status, 2000);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const nextId = useRef(1);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [busy, setBusy] = useState(false);
 
   const notify = useCallback((text: string, error = false) => {
-    const id = nextId.current++;
-    setToasts((t) => [...t.slice(-3), { id, text, error }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), error ? 7000 : 3500);
+    setMessage({ text, error });
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setMessage(null), error ? 8000 : 4000);
   }, []);
 
   const run = useCallback(
@@ -90,49 +83,37 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   async function togglePause() {
     setBusy(true);
-    await run(paused ? crawler.resume : crawler.pause, paused ? "Crawl resumed." : "Crawl paused. In-flight requests will finish.");
+    await run(paused ? crawler.resume : crawler.pause, paused ? "Crawl resumed." : "Crawl paused. Requests already in progress will finish.");
     setBusy(false);
   }
 
   return (
     <Ctx.Provider value={ctx}>
       <div className={s.shell}>
-        <header className={s.topbar}>
-          <div className={s.topbarInner}>
-            <Link href="/" className={s.brand} aria-label={`${SITE_NAME} home`}>
-              <svg width="20" height="20" viewBox="0 0 22 22" aria-hidden="true">
-                <circle cx="11" cy="11" r="3.5" fill="currentColor" />
-                <circle cx="11" cy="11" r="9.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 3" />
-              </svg>
-              <span className={s.brandText}>{SITE_NAME}</span>
-            </Link>
-            <span className={`${s.state} ${s[`state_${state}`] ?? ""}`} role="status" aria-live="polite">
-              <span className={s.dot} aria-hidden="true" />
-              {STATE_LABEL[state] ?? state}
+        <header className={s.header}>
+          <div className={s.headerInner}>
+            <span className={s.appName}>Crawler dashboard</span>
+            <span className={s.statusText} role="status" aria-live="polite">
+              Status: <strong>{STATE_LABEL[state] ?? state}</strong>
             </span>
             <span className={s.spacer} />
-            <button
-              type="button"
-              className={`btn ${paused ? "btn-primary" : ""}`}
-              onClick={togglePause}
-              disabled={!canToggle || busy}
-            >
+            <button type="button" className={`btn ${paused ? "btn-primary" : ""}`} onClick={togglePause} disabled={!canToggle || busy}>
               {paused ? "Resume crawl" : "Pause crawl"}
             </button>
           </div>
-          <nav className={s.tabs} aria-label="Dashboard">
-            {TABS.map((t) => {
+          <nav className={s.nav} aria-label="Dashboard">
+            {NAV.map((t) => {
               const active = t.href === "/dashboard" ? pathname === t.href : pathname.startsWith(t.href);
               return (
                 <Link
                   key={t.href}
                   href={t.href}
-                  className={`${s.tab} ${active ? s.tabActive : ""}`}
+                  className={`${s.navLink} ${active ? s.navActive : ""}`}
                   aria-current={active ? "page" : undefined}
                 >
                   {t.label}
                   {t.href === "/dashboard/failures" && !!status?.dead_letters && (
-                    <span className={s.tabCount}>{status.dead_letters}</span>
+                    <span className={s.navCount}> ({status.dead_letters})</span>
                   )}
                 </Link>
               );
@@ -142,26 +123,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <main className={s.main}>
           {statusError && (
-            <div className={s.banner} role="alert">
-              <div>
-                <strong>{offline ? "Can't reach the crawler" : "Couldn't load crawl status"}</strong>
-                <p>
-                  {statusError.message}
-                  {offline && status && " Showing the last known numbers."}
-                </p>
-              </div>
+            <div className={s.alert} role="alert">
+              <strong>{offline ? "Can't reach the crawler." : "Couldn't load crawl status."}</strong> {statusError.message}
+              {offline && status && " Showing the last known numbers."}
             </div>
           )}
           {children}
         </main>
 
-        <div className={s.toasts} aria-live="polite">
-          {toasts.map((t) => (
-            <div key={t.id} className={`${s.toast} ${t.error ? s.toastError : ""}`} role={t.error ? "alert" : "status"}>
-              {t.text}
-            </div>
-          ))}
-        </div>
+        {message && (
+          <div className={`${s.message} ${message.error ? s.messageError : ""}`} role={message.error ? "alert" : "status"}>
+            {message.text}
+          </div>
+        )}
       </div>
     </Ctx.Provider>
   );

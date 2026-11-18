@@ -36,8 +36,8 @@ export default function Failures() {
   return (
     <>
       <PageHead
-        title="Failures"
-        description="URLs the crawler gave up on after every retry. Retrying puts them back in the queue at their original depth."
+        title="Failed URLs"
+        description="URLs that still failed after every retry. Retry puts a URL back in the queue; Discard removes it from this list."
         actions={
           entries.length > 0 && (
             <>
@@ -54,9 +54,9 @@ export default function Failures() {
 
       <Panel flush meta={data && data.total > entries.length ? `showing ${entries.length} of ${num(data.total)}` : undefined}>
         {error && !data ? (
-          <Empty title="Couldn't load failures">{error.message}</Empty>
+          <Empty title="Couldn't load failed URLs">{error.message}</Empty>
         ) : !data ? (
-          <Empty title="Loading failures…" />
+          <Empty title="Loading…" />
         ) : entries.length > 0 ? (
           <div className={s.tableWrap}>
             <table className={s.table}>
@@ -112,7 +112,7 @@ export default function Failures() {
             </table>
           </div>
         ) : (
-          <Empty title="No failures">Every URL so far was fetched, or is still being retried.</Empty>
+          <Empty title="No failed URLs." />
         )}
       </Panel>
     </>
