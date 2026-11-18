@@ -15,11 +15,12 @@ const DESCRIPTION =
 
 export const metadata: Metadata = {
   // Absolute URLs (canonical, og:image) need the deployed address; set
-  // NEXT_PUBLIC_SITE_URL at build time.
-  metadataBase: SITE_URL ? new URL(SITE_URL) : undefined,
+  // NEXT_PUBLIC_SITE_URL at build time. Only the origin goes here: Next adds
+  // the basePath to file-based metadata (og:image, icon) itself.
+  metadataBase: SITE_URL ? new URL(new URL(SITE_URL).origin) : undefined,
   title: TITLE,
   description: DESCRIPTION,
-  alternates: SITE_URL ? { canonical: "/" } : undefined,
+  alternates: SITE_URL ? { canonical: `${SITE_URL}/` } : undefined,
   openGraph: { type: "website", title: TITLE, description: DESCRIPTION, siteName: SITE_NAME },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
   other: { "page-type": "software", "site-kind": "software" },

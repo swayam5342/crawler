@@ -2,7 +2,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { CrawlGraph } from "@/components/CrawlGraph";
 import { DashboardRun, type Screen } from "@/components/DashboardRun";
 import { SiteHeader } from "@/components/SiteHeader";
-import { CLONE_DIR, REPO_URL, SITE_NAME } from "@/lib/site";
+import { asset, CLONE_DIR, REPO_URL, SITE_NAME } from "@/lib/site";
 
 // What happens to each URL, in order: the stage, what it does, and the
 // package that does it.
@@ -21,28 +21,28 @@ const SCREENS: Screen[] = [
     id: "overview",
     title: "Watch it crawl",
     line: "Pages, errors and robots.txt blocks per domain, refreshed every two seconds.",
-    src: "/screens/overview.png",
+    src: asset("/screens/overview.png"),
     alt: "Dashboard overview: pages crawled, errors, blocked URLs and a table of recent activity.",
   },
   {
     id: "pages",
     title: "Search what it stored",
     line: "Every stored page with its status code, by URL, title or domain.",
-    src: "/screens/pages.png",
+    src: asset("/screens/pages.png"),
     alt: "Crawled pages: a searchable list of page titles, URLs, status codes and fetch times.",
   },
   {
     id: "failures",
     title: "Retry what failed",
     line: "A URL that ran out of tries waits here with the error that stopped it.",
-    src: "/screens/failures.png",
+    src: asset("/screens/failures.png"),
     alt: "Failed URLs: one URL with its error, attempt count, and Retry and Discard buttons.",
   },
   {
     id: "settings",
     title: "Change scope, or start over",
     line: "Edit the allowed domains; clear the queue, failures or stored pages.",
-    src: "/screens/settings.png",
+    src: asset("/screens/settings.png"),
     alt: "Settings: the allowed domains list, reset options and the running configuration.",
   },
 ];

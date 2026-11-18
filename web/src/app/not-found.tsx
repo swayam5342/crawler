@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
-import { REPO_URL, SITE_NAME } from "@/lib/site";
+import { asset, REPO_URL, SITE_NAME } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: `Page not found | ${SITE_NAME}`,
@@ -21,7 +21,7 @@ export default function NotFound() {
           <h1>No page at this address</h1>
           <p className="lead">The crawler would log this one as a 404 and move on.</p>
           <div className="actions">
-            <a href="/" className="btn btn--primary">
+            <a href={asset("/")} className="btn btn--primary">
               Back to the home page
             </a>
             <a href={REPO_URL} className="btn btn--quiet">

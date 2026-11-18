@@ -1,4 +1,4 @@
-import { REPO_URL, SITE_NAME } from "@/lib/site";
+import { asset, REPO_URL, SITE_NAME } from "@/lib/site";
 
 const LINKS = [
   { id: "pipeline", label: "Pipeline" },
@@ -12,7 +12,7 @@ export function SiteHeader({ home = "" }: { home?: "" | "/" }) {
   const links = (
     <>
       {LINKS.map((l) => (
-        <a key={l.id} href={`${home}#${l.id}`} className="line">
+        <a key={l.id} href={home ? asset(`/#${l.id}`) : `#${l.id}`} className="line">
           {l.label}
         </a>
       ))}
@@ -28,7 +28,7 @@ export function SiteHeader({ home = "" }: { home?: "" | "/" }) {
       </a>
       <header className="nav">
         <div className="container nav-row">
-          <a href={home ? "/" : "#main"} className="wordmark line" aria-label={`${SITE_NAME}, home`}>
+          <a href={home ? asset("/") : "#main"} className="wordmark line" aria-label={`${SITE_NAME}, home`}>
             {SITE_NAME}
           </a>
           <nav aria-label="Site" className="nav-links">
@@ -40,7 +40,7 @@ export function SiteHeader({ home = "" }: { home?: "" | "/" }) {
               {links}
             </nav>
           </details>
-          <a href={`${home}#run`} className="btn btn--quiet btn--sm nav-action">
+          <a href={home ? asset("/#run") : "#run"} className="btn btn--quiet btn--sm nav-action">
             Run it
           </a>
         </div>
