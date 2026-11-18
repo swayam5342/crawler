@@ -22,11 +22,25 @@ services:
         condition: service_healthy
     environment:
       CRAWLER_POSTGRES_DSN: "postgres://crawler:crawler@postgres:5432/crawler?sslmode=disable"
+      # Shared with the dashboard below; change it for anything but local use.
+      CRAWLER_API_TOKEN: "${CRAWLER_API_TOKEN:-change-me-local-token}"
     ports:
       - "9090:9090"
     volumes:
       - crawler_data:/app/data
     stop_grace_period: 60s
+
+  web:
+    build: ./web
+    depends_on:
+      - crawler
+    environment:
+      CRAWLER_API_URL: "http://crawler:9090"
+      CRAWLER_API_TOKEN: "${CRAWLER_API_TOKEN:-change-me-local-token}"
+      # Set to require basic auth (user "admin") on /dashboard.
+      DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-}"
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres_data:

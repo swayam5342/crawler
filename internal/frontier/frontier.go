@@ -12,8 +12,8 @@ import (
 
 // Item is a unit of work in the frontier.
 type Item struct {
-	URL   string // normalized, absolute URL
-	Depth int
+	URL   string `json:"url"` // normalized, absolute URL
+	Depth int    `json:"depth"`
 }
 
 // Filter decides whether a URL is in-scope for the crawl (e.g. domain

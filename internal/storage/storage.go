@@ -10,14 +10,14 @@ import (
 
 // Page is one crawled page's metadata, ready to persist.
 type Page struct {
-	URL         string
-	Domain      string
-	StatusCode  int
-	Title       string
-	Language    string
-	NoIndex     bool
-	ContentHash string // sha256 of the page body; doubles as the blob store key
-	FetchedAt   time.Time
+	URL         string    `json:"url"`
+	Domain      string    `json:"domain"`
+	StatusCode  int       `json:"status_code"`
+	Title       string    `json:"title"`
+	Language    string    `json:"language"`
+	NoIndex     bool      `json:"no_index"`
+	ContentHash string    `json:"content_hash"` // sha256 of the page body; doubles as the blob store key
+	FetchedAt   time.Time `json:"fetched_at"`
 }
 
 // Backend persists crawled page metadata. Implementations must be safe for

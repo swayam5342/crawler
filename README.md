@@ -8,6 +8,7 @@ visibility.
 ## Contents
 
 - [Quick start](#quick-start)
+- [Dashboard and website](#dashboard-and-website)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Data pipeline](#data-pipeline)
@@ -24,9 +25,10 @@ path is Docker Compose, which runs Postgres and the crawler together:
 docker compose up --build
 ```
 
-This starts Postgres (with a health check gating crawler startup) and the
-crawler using `configs/config.yaml`, publishing the metrics/health server on
-`:9090`. Crawled page data and blobs persist in the `postgres_data` and
+This starts Postgres (with a health check gating crawler startup), the
+crawler using `configs/config.yaml` (API/metrics/health server on `:9090`),
+and the web dashboard on `:3000`. Open <http://localhost:3000/dashboard> and
+add a URL to start crawling. Crawled page data and blobs persist in the `postgres_data` and
 `crawler_data` named volumes.
 
 To point it at real seed URLs, override config via environment variables
@@ -52,6 +54,65 @@ go run ./cmd/crawler --config configs/config.yaml
 
 The binary needs write access to `./data` (checkpoint, dead-letter log, and
 local blob storage default there).
+
+## Dashboard and website
+
+`web/` is a Next.js app with two parts:
+
+- `/` is a public page explaining what the crawler does.
+- `/dashboard` controls a running crawler: add URLs, pause and resume,
+  browse crawled pages, inspect the queue, retry or discard failed URLs,
+  edit the domain allow-list, reset state, and watch live throughput,
+  per-domain health and recent activity.
+
+The dashboard needs the crawler running in service mode
+(`crawl.keep_alive: true`, the default in `configs/config.yaml`), so it
+stays up when the queue drains and waits for new URLs. In batch mode
+(`keep_alive: false`) it exits once every reachable URL is processed, and
+`timeouts.overall` bounds the run.
+
+The browser never talks to the crawler directly. The dashboard's server
+proxies `/api/crawler/*` to the crawler's `/api/*` and adds the API token,
+so the token stays server-side and no CORS setup is needed.
+
+```sh
+cd web
+cp .env.example .env.local   # set CRAWLER_API_URL / CRAWLER_API_TOKEN
+npm install
+npm run dev                  # http://localhost:3000
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `CRAWLER_API_URL` | Crawler server address (default `http://localhost:9090`) |
+| `CRAWLER_API_TOKEN` | Must match the crawler's `server.api_token` |
+| `DASHBOARD_PASSWORD` | If set, `/dashboard` requires basic auth as user `admin` |
+
+### Control API
+
+Served by the crawler under `/api/` on `server.addr`. When
+`server.api_token` (`CRAWLER_API_TOKEN`) is set, every request needs
+`Authorization: Bearer <token>`. Set it whenever the port is reachable by
+anyone else: the API can reset state and delete stored pages. POST bodies
+must be `application/json`, which keeps plain cross-site form posts out.
+
+| Method and path | What it does |
+| --- | --- |
+| `GET /api/status` | Run state, queue sizes, totals, pages/sec, error rate, 60s throughput, per-domain stats with circuit breaker state |
+| `GET /api/events?limit=` | Recently processed URLs, newest first |
+| `POST /api/urls` | `{"urls":[...],"allow_domain":bool,"recrawl":bool}`, returns a status per URL |
+| `POST /api/pause`, `POST /api/resume` | Stop or restart new fetches; in-flight requests finish |
+| `GET /api/queue?limit=`, `DELETE /api/queue?url=` | Inspect the queue, or drop one queued URL |
+| `GET /api/pages?q=&domain=&limit=&offset=` | Browse stored pages |
+| `GET /api/pages/domains` | Stored page counts per domain |
+| `GET /api/deadletters` | Failed URLs, newest first |
+| `POST /api/deadletters/retry`, `.../discard` | `{"urls":[...]}`; an empty list means all |
+| `POST /api/domains`, `DELETE /api/domains?domain=` | Edit the allow-list at runtime |
+| `POST /api/reset` | `{"queue","dead_letters","pages","stats"}` booleans |
+| `GET /api/config` | Running config with secrets redacted |
+
+Runtime changes (allow-list edits, resets) aren't written back to
+`config.yaml`.
 
 ## Architecture
 
@@ -138,7 +199,7 @@ tunable has a safe default — the crawler runs with no config file at all
 
 | Section | Purpose |
 | --- | --- |
-| `crawl` | seed URLs, allowed domains, max depth, User-Agent, body size cap, redirect limit, nofollow/noindex handling |
+| `crawl` | seed URLs, allowed domains, max depth, User-Agent, body size cap, redirect limit, nofollow/noindex handling, `keep_alive` service mode |
 | `concurrency` | global and per-domain worker limits |
 | `rate_limit` | default requests/sec and burst per domain |
 | `timeouts` | DNS, TCP connect, TLS handshake, per-request, and overall crawl deadline |
@@ -147,7 +208,7 @@ tunable has a safe default — the crawler runs with no config file at all
 | `robots` | robots.txt cache TTL and fetch timeout |
 | `storage.postgres` | connection string and pool sizing |
 | `storage.blob_store` | `local` or `s3` backend and its settings |
-| `server` | metrics/health bind address, shutdown grace period |
+| `server` | API/metrics/health bind address, shutdown grace period, API token, CORS origins |
 | `logging` | level and format (`text`/`json`) |
 
 ### Environment variable overrides
@@ -204,10 +265,11 @@ events.
 - **Dead-letter queue**: URLs that exhaust their retry budget are appended
   to `data/deadletter.jsonl` (one JSON object per line) with the error and
   attempt count — nothing fails silently.
-- **Graceful shutdown**: SIGINT/SIGTERM stops the frontier from handing
-  out new work but lets in-flight fetches finish normally, then persists a
+- **Graceful shutdown**: SIGINT/SIGTERM pauses the workers so no new
+  fetches start, lets in-flight fetches finish normally, then persists a
   final checkpoint before exiting. If a fetch hasn't finished within
-  `server.grace_period` (default 30s), it's forcibly canceled. Verified
+  `server.grace_period` (default 30s), it's forcibly canceled and its URL
+  goes back into the queue, so the next run picks it up. Verified
   against `docker stop` (real SIGTERM) with a deliberately slow in-flight
   request: the page was fetched, persisted, and the process exited cleanly
   only afterward.
