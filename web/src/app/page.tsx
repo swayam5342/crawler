@@ -85,9 +85,9 @@ export default function Home() {
           <a href="#how-it-works">How it works</a>
           <a href="#failures">Failure handling</a>
           <a href="#run">Run it</a>
-          <Link href="/dashboard" className="btn btn-sm">
-            Open dashboard
-          </Link>
+          <a href={REPO_URL} className="btn btn-sm">
+            View source
+          </a>
         </nav>
       </header>
 
@@ -100,11 +100,11 @@ export default function Home() {
               resumes where it stopped after a crash. You steer it from a live dashboard while it runs.
             </p>
             <div className={styles.ctas}>
-              <Link href="/dashboard" className="btn btn-primary">
-                Open the dashboard
-              </Link>
-              <a href="#run" className="btn">
+              <a href="#run" className="btn btn-primary">
                 Run it locally
+              </a>
+              <a href={REPO_URL} className="btn">
+                View source
               </a>
             </div>
             <p className={styles.stack}>Written in Go. Stores to Postgres and disk or S3. Exposes Prometheus metrics.</p>
@@ -157,9 +157,9 @@ export default function Home() {
               Run the crawler as a service and it waits for work instead of exiting. The dashboard
               talks to it over a small JSON API, which you can lock with a token.
             </p>
-            <Link href="/dashboard" className="btn btn-primary">
-              Open the dashboard
-            </Link>
+            <a href="#run" className="btn btn-primary">
+              Set it up
+            </a>
           </div>
           <ul className={styles.controls}>
             {CONTROLS.map((c) => (
@@ -223,7 +223,6 @@ server:
       <footer className={styles.footer}>
         <span>{SITE_NAME}</span>
         <a href={REPO_URL}>Source on GitHub</a>
-        <Link href="/dashboard">Dashboard</Link>
       </footer>
     </div>
   );
