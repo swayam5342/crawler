@@ -35,19 +35,35 @@ type Frontier struct {
 	closeCh  chan struct{}
 	closeOne sync.Once
 
-	closed  bool
-	pending int // items queued or in-flight, not yet marked Done
+	closed    bool
+	pending   int  // items queued or in-flight, not yet marked Done
+	keepAlive bool // if true, never auto-close when pending reaches zero
+}
+
+// Option configures a Frontier.
+type Option func(*Frontier)
+
+// WithKeepAlive keeps the frontier open even when all pending work has
+// been processed, so new URLs can be added later (e.g. from the control
+// dashboard). Without it, the frontier auto-closes once drained. A
+// keep-alive frontier only closes via an explicit Close.
+func WithKeepAlive() Option {
+	return func(f *Frontier) { f.keepAlive = true }
 }
 
 // New creates an empty Frontier. filter may be nil to allow everything.
-func New(filter Filter) *Frontier {
-	return &Frontier{
+func New(filter Filter, opts ...Option) *Frontier {
+	f := &Frontier{
 		filter:   filter,
 		inFlight: make(map[string]Item),
 		visited:  make(map[string]struct{}),
 		notify:   make(chan struct{}, 1),
 		closeCh:  make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return f
 }
 
 // Add normalizes and enqueues a URL if it passes the filter and has not
@@ -85,14 +101,147 @@ func (f *Frontier) Add(rawURL string, depth int) (bool, error) {
 // more work, so further Next calls return ok=false once the queue drains.
 func (f *Frontier) Done(url string) {
 	f.mu.Lock()
+	if _, ok := f.inFlight[url]; !ok {
+		// Not in flight: either released back into the queue or dropped
+		// by Reset. Either way, pending was already accounted for.
+		f.mu.Unlock()
+		return
+	}
 	delete(f.inFlight, url)
 	f.pending--
 	pending := f.pending
+	keepAlive := f.keepAlive
 	f.mu.Unlock()
 
-	if pending <= 0 {
+	if pending <= 0 && !keepAlive {
 		f.Close()
 	}
+}
+
+// Release returns a dequeued-but-unprocessed item to the front of the
+// queue (e.g. because the crawl was paused right after Next handed it
+// out). Pending accounting is unchanged; a subsequent Done for the same
+// URL is a no-op until the item is handed out again.
+func (f *Frontier) Release(item Item) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.inFlight[item.URL]; !ok {
+		return
+	}
+	delete(f.inFlight, item.URL)
+	f.queue = append([]Item{item}, f.queue...)
+	f.signal()
+}
+
+// Requeue enqueues rawURL even if it was already visited (e.g. to retry
+// a URL from the dead-letter log). It is a no-op if the URL is currently
+// queued or in flight, or rejected by the filter. Returns true if the URL
+// was enqueued.
+func (f *Frontier) Requeue(rawURL string, depth int) (bool, error) {
+	normalized, err := urlutil.Normalize(rawURL)
+	if err != nil {
+		return false, err
+	}
+	if f.filter != nil && !f.filter.Allowed(normalized) {
+		return false, nil
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return false, nil
+	}
+	if _, ok := f.inFlight[normalized]; ok {
+		return false, nil
+	}
+	for _, it := range f.queue {
+		if it.URL == normalized {
+			return false, nil
+		}
+	}
+	f.visited[normalized] = struct{}{}
+	f.queue = append(f.queue, Item{URL: normalized, Depth: depth})
+	f.pending++
+	f.signal()
+	return true, nil
+}
+
+// RemoveQueued drops a not-yet-dequeued URL from the queue. The URL stays
+// marked as visited, so it will not be re-discovered. Returns true if it
+// was found in the queue.
+func (f *Frontier) RemoveQueued(rawURL string) bool {
+	normalized, err := urlutil.Normalize(rawURL)
+	if err != nil {
+		normalized = rawURL
+	}
+
+	f.mu.Lock()
+	removed := false
+	for i, it := range f.queue {
+		if it.URL == normalized {
+			f.queue = append(f.queue[:i], f.queue[i+1:]...)
+			f.pending--
+			removed = true
+			break
+		}
+	}
+	pending := f.pending
+	keepAlive := f.keepAlive
+	f.mu.Unlock()
+
+	if removed && pending <= 0 && !keepAlive {
+		f.Close()
+	}
+	return removed
+}
+
+// Reset forgets every queued item and the visited set, so previously
+// crawled URLs can be crawled again. Items currently in flight are
+// forgotten too: their eventual Done calls become no-ops, and links they
+// discover are still added normally.
+func (f *Frontier) Reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queue = nil
+	f.inFlight = make(map[string]Item)
+	f.visited = make(map[string]struct{})
+	f.pending = 0
+}
+
+// Stats is a consistent point-in-time view of frontier sizes.
+type Stats struct {
+	Queued   int  `json:"queued"`
+	InFlight int  `json:"in_flight"`
+	Visited  int  `json:"visited"`
+	Closed   bool `json:"closed"`
+}
+
+// Stats returns current queue, in-flight and visited counts.
+func (f *Frontier) Stats() Stats {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return Stats{
+		Queued:   len(f.queue),
+		InFlight: len(f.inFlight),
+		Visited:  len(f.visited),
+		Closed:   f.closed,
+	}
+}
+
+// Peek returns up to n queued items (in dequeue order) without removing
+// them, plus everything currently in flight.
+func (f *Frontier) Peek(n int) (queued []Item, inFlight []Item) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n < 0 || n > len(f.queue) {
+		n = len(f.queue)
+	}
+	queued = append([]Item(nil), f.queue[:n]...)
+	inFlight = make([]Item, 0, len(f.inFlight))
+	for _, it := range f.inFlight {
+		inFlight = append(inFlight, it)
+	}
+	return queued, inFlight
 }
 
 // Next blocks until an item is available, the context is canceled, or the

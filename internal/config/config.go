@@ -28,6 +28,11 @@ type CrawlConfig struct {
 	MaxRedirects   int      `yaml:"max_redirects"`
 	HonorNofollow  bool     `yaml:"honor_nofollow"`
 	HonorNoindex   bool     `yaml:"honor_noindex"`
+	// KeepAlive runs the crawler as a long-lived service: it stays up when
+	// the queue drains, waiting for URLs submitted via the dashboard/API,
+	// and timeouts.overall does not apply. When false, the crawler exits
+	// once every reachable URL has been processed.
+	KeepAlive bool `yaml:"keep_alive"`
 }
 
 // ConcurrencyConfig controls worker pool sizing.
@@ -116,6 +121,13 @@ type ServerConfig struct {
 	// in-flight fetches to finish before forcing cancellation, and how
 	// long the metrics/health HTTP server is given to shut down.
 	GracePeriod time.Duration `yaml:"grace_period"`
+	// APIToken, when set, is required as a Bearer token on every /api/
+	// request (the control API used by the dashboard). Strongly
+	// recommended whenever Addr is reachable from other machines.
+	APIToken string `yaml:"api_token"`
+	// CORSOrigins lists browser origins allowed to call /api/ directly.
+	// Not needed when the dashboard proxies API calls (the default).
+	CORSOrigins []string `yaml:"cors_origins"`
 }
 
 // LoggingConfig controls structured logging output.

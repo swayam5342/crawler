@@ -7,6 +7,8 @@ crawl:
   max_redirects: 10
   honor_nofollow: true
   honor_noindex: true
+  # Stay up when the queue drains and accept new URLs from the dashboard.
+  keep_alive: true
 
 concurrency:
   global: 50
@@ -57,6 +59,11 @@ storage:
 server:
   addr: ":9090"
   grace_period: 30s
+  # Bearer token required on /api/ (set via CRAWLER_API_TOKEN in production).
+  api_token: ""
+  # Browser origins allowed to call /api/ directly (not needed with the
+  # dashboard's built-in proxy).
+  cors_origins: []
 
 logging:
   level: info

@@ -59,6 +59,7 @@ func applyEnvOverrides(cfg *Config) error {
 		{"CRAWLER_USER_AGENT", func(v string) error { cfg.Crawl.UserAgent = v; return nil }},
 		{"CRAWLER_MAX_BODY_BYTES", int64Setter(&cfg.Crawl.MaxBodyBytes)},
 		{"CRAWLER_MAX_REDIRECTS", intSetter(&cfg.Crawl.MaxRedirects)},
+		{"CRAWLER_KEEP_ALIVE", boolSetter(&cfg.Crawl.KeepAlive)},
 
 		{"CRAWLER_CONCURRENCY_GLOBAL", intSetter(&cfg.Concurrency.Global)},
 		{"CRAWLER_CONCURRENCY_PER_DOMAIN", intSetter(&cfg.Concurrency.PerDomain)},
@@ -98,6 +99,11 @@ func applyEnvOverrides(cfg *Config) error {
 
 		{"CRAWLER_SERVER_ADDR", func(v string) error { cfg.Server.Addr = v; return nil }},
 		{"CRAWLER_SERVER_GRACE_PERIOD", durationSetter(&cfg.Server.GracePeriod)},
+		{"CRAWLER_API_TOKEN", func(v string) error { cfg.Server.APIToken = v; return nil }},
+		{"CRAWLER_CORS_ORIGINS", func(v string) error {
+			cfg.Server.CORSOrigins = splitCSV(v)
+			return nil
+		}},
 
 		{"CRAWLER_LOG_LEVEL", func(v string) error { cfg.Logging.Level = v; return nil }},
 		{"CRAWLER_LOG_FORMAT", func(v string) error { cfg.Logging.Format = v; return nil }},
@@ -155,6 +161,17 @@ func floatSetter(dst *float64) func(string) error {
 			return err
 		}
 		*dst = n
+		return nil
+	}
+}
+
+func boolSetter(dst *bool) func(string) error {
+	return func(v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return err
+		}
+		*dst = b
 		return nil
 	}
 }

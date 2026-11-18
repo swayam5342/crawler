@@ -33,6 +33,7 @@ type Sink interface {
 // safe for concurrent use.
 type FileSink struct {
 	mu   sync.Mutex
+	path string
 	file *os.File
 }
 
@@ -46,7 +47,78 @@ func NewFileSink(path string) (*FileSink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening dead-letter file: %w", err)
 	}
-	return &FileSink{file: f}, nil
+	return &FileSink{path: path, file: f}, nil
+}
+
+// Entries reads back every entry recorded so far.
+func (s *FileSink) Entries() ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return ReadAll(s.path)
+}
+
+// Remove rewrites the log without the entries for which drop returns
+// true, and returns how many were removed. The rewrite goes through a
+// temp file + rename so a crash mid-rewrite cannot lose the log.
+func (s *FileSink) Remove(drop func(Entry) bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := ReadAll(s.path)
+	if err != nil {
+		return 0, err
+	}
+	kept := entries[:0]
+	removed := 0
+	for _, e := range entries {
+		if drop(e) {
+			removed++
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+
+	var buf []byte
+	for _, e := range kept {
+		line, err := json.Marshal(e)
+		if err != nil {
+			return 0, fmt.Errorf("marshaling dead-letter entry: %w", err)
+		}
+		buf = append(buf, line...)
+		buf = append(buf, '\n')
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".deadletter-*.tmp")
+	if err != nil {
+		return 0, fmt.Errorf("creating temp dead-letter file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op after a successful rename
+	if _, err := tmp.Write(buf); err != nil {
+		tmp.Close()
+		return 0, fmt.Errorf("writing temp dead-letter file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return 0, fmt.Errorf("closing temp dead-letter file: %w", err)
+	}
+
+	// The open append handle must be closed before the rename on Windows.
+	if err := s.file.Close(); err != nil {
+		return 0, fmt.Errorf("closing dead-letter file: %w", err)
+	}
+	renameErr := os.Rename(tmpPath, s.path)
+	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("reopening dead-letter file: %w", err)
+	}
+	s.file = f
+	if renameErr != nil {
+		return 0, fmt.Errorf("replacing dead-letter file: %w", renameErr)
+	}
+	return removed, nil
 }
 
 // Record appends e as a single JSON line.

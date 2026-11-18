@@ -7,14 +7,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/swayamsb50/web_crawler/internal/api"
 	"github.com/swayamsb50/web_crawler/internal/breaker"
 	"github.com/swayamsb50/web_crawler/internal/config"
+	"github.com/swayamsb50/web_crawler/internal/control"
 	"github.com/swayamsb50/web_crawler/internal/crawler"
 	"github.com/swayamsb50/web_crawler/internal/deadletter"
 	"github.com/swayamsb50/web_crawler/internal/extractor"
@@ -54,11 +59,18 @@ func run() error {
 		"global_concurrency", cfg.Concurrency.Global,
 		"per_domain_concurrency", cfg.Concurrency.PerDomain,
 		"seed_urls", len(cfg.Crawl.SeedURLs),
+		"keep_alive", cfg.Crawl.KeepAlive,
 	)
 
-	// Frontier, with checkpoint resume if a prior checkpoint exists.
+	// Frontier, with checkpoint resume if a prior checkpoint exists. In
+	// keep-alive mode it stays open when drained so the dashboard can add
+	// more URLs.
 	filter := frontier.NewDomainFilter(cfg.Crawl.AllowedDomains)
-	f := frontier.New(filter)
+	var frontierOpts []frontier.Option
+	if cfg.Crawl.KeepAlive {
+		frontierOpts = append(frontierOpts, frontier.WithKeepAlive())
+	}
+	f := frontier.New(filter, frontierOpts...)
 
 	checkpointStore := frontier.FileCheckpointStore{Path: filepath.Join("data", "checkpoint.json")}
 	if cp, found, err := checkpointStore.Load(); err != nil {
@@ -139,19 +151,52 @@ func run() error {
 		logger:        logger,
 	}
 
+	// Control plane: pause/resume, add URLs, retry failures, reset, live
+	// stats. Exposed as a JSON API consumed by the web dashboard (web/).
+	gate := crawler.NewPauseGate(false)
+	ctl, err := control.New(control.Options{
+		Frontier:     f,
+		Filter:       filter,
+		Gate:         gate,
+		DeadLetter:   deadLetterSink,
+		Checkpoint:   checkpointStore,
+		Pages:        storageBackend,
+		Purger:       storageBackend,
+		BreakerState: func(domain string) string { return breakerMgr.State(domain).String() },
+		KeepAlive:    cfg.Crawl.KeepAlive,
+		Logger:       logger,
+	})
+	if err != nil {
+		return fmt.Errorf("creating control plane: %w", err)
+	}
+
 	// Observability: Prometheus metrics + health check, served over HTTP
 	// alongside the crawl.
 	m := metrics.New()
 	m.SetQueueDepthFunc(func() float64 { return float64(f.Len()) })
+
+	if cfg.Server.APIToken == "" {
+		logger.Warn("control API has no token; set server.api_token / CRAWLER_API_TOKEN if this port is reachable by others")
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", m.Handler())
 	mux.Handle("/healthz", health.Handler(5*time.Second, map[string]health.Check{
 		"postgres": storageBackend.Ping,
 	}))
-	metricsServer := &http.Server{Addr: cfg.Server.Addr, Handler: mux}
+	mux.Handle("/api/", api.Handler(ctl, api.Options{
+		Token:          cfg.Server.APIToken,
+		AllowedOrigins: cfg.Server.CORSOrigins,
+		Config:         sanitizedConfig(cfg),
+		Logger:         logger,
+	}))
+	metricsServer := &http.Server{
+		Addr:              cfg.Server.Addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() {
-		logger.Info("metrics/health server listening", "addr", cfg.Server.Addr)
+		logger.Info("API/metrics/health server listening", "addr", cfg.Server.Addr)
 		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Warn("metrics/health server stopped unexpectedly", "error", err)
 		}
@@ -171,45 +216,63 @@ func run() error {
 		Limiter:        limiter,
 		DeadLetter:     deadLetterAdapter{sink: deadLetterSink},
 		Metrics:        m,
+		Gate:           gate,
+		Events:         ctl,
 	})
 
 	stopCheckpointing := make(chan struct{})
 	checkpointDone := make(chan struct{})
 	go periodicCheckpoint(f, checkpointStore, logger, 10*time.Second, stopCheckpointing, checkpointDone)
 
-	// workCtx bounds the crawl itself (fetches, frontier draining) by the
-	// overall deadline. It is deliberately NOT canceled immediately on
-	// SIGINT/SIGTERM: graceful shutdown instead closes the frontier (so no
-	// new work is picked up) and lets in-flight fetches finish naturally,
-	// only force-canceling workCtx if they don't finish within GracePeriod.
-	workCtx, cancelWork := context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
+	// workCtx bounds the crawl itself. In batch mode it carries the overall
+	// crawl deadline; in keep-alive (service) mode it runs until shutdown.
+	// It is deliberately NOT canceled immediately on SIGINT/SIGTERM:
+	// graceful shutdown pauses the pool (no new work is started) and lets
+	// in-flight fetches finish, only force-canceling workCtx if they don't
+	// finish within GracePeriod. Anything still queued stays in the
+	// checkpoint for the next run.
+	var (
+		workCtx    context.Context
+		cancelWork context.CancelFunc
+	)
+	if cfg.Crawl.KeepAlive {
+		workCtx, cancelWork = context.WithCancel(context.Background())
+	} else {
+		workCtx, cancelWork = context.WithTimeout(context.Background(), cfg.Timeouts.Overall)
+	}
 	defer cancelWork()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	shutdownWatchDone := make(chan struct{})
+	poolDone := make(chan struct{})
+	logger.Info("starting crawl", "keep_alive", cfg.Crawl.KeepAlive, "overall_deadline", cfg.Timeouts.Overall)
 	go func() {
-		defer close(shutdownWatchDone)
-		select {
-		case sig := <-sigCh:
-			logger.Info("received shutdown signal; draining in-flight requests", "signal", sig.String(), "grace_period", cfg.Server.GracePeriod)
-			f.Close() // stop handing out new work; in-flight fetches keep running
-			select {
-			case <-time.After(cfg.Server.GracePeriod):
-				logger.Warn("shutdown grace period elapsed; forcing cancellation of in-flight requests")
-				cancelWork()
-			case <-workCtx.Done():
-			}
-		case <-workCtx.Done():
-		}
+		defer close(poolDone)
+		pool.Run(workCtx)
 	}()
 
-	logger.Info("starting crawl", "overall_deadline", cfg.Timeouts.Overall)
-	pool.Run(workCtx)
-	cancelWork() // unblock the shutdown watcher if the crawl finished on its own
-	<-shutdownWatchDone
+	select {
+	case <-poolDone:
+		if workCtx.Err() == nil {
+			ctl.MarkFinished()
+			logger.Info("frontier drained; crawl complete")
+		} else {
+			logger.Warn("overall crawl deadline reached")
+		}
+	case sig := <-sigCh:
+		logger.Info("received shutdown signal; draining in-flight requests", "signal", sig.String(), "grace_period", cfg.Server.GracePeriod)
+		ctl.MarkStopping()
+		gate.Pause()
+		waitForInFlight(f, cfg.Server.GracePeriod, logger)
+		cancelWork()
+		<-poolDone
+	case <-workCtx.Done():
+		logger.Warn("overall crawl deadline reached; stopping")
+		<-poolDone
+	}
+	cancelWork()
 
 	close(stopCheckpointing)
 	<-checkpointDone
@@ -220,6 +283,44 @@ func run() error {
 
 	logger.Info("crawl finished", "visited", f.Visited())
 	return nil
+}
+
+// waitForInFlight polls until no fetches are in flight or grace elapses.
+func waitForInFlight(f *frontier.Frontier, grace time.Duration, logger *slog.Logger) {
+	deadline := time.Now().Add(grace)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		if f.Stats().InFlight == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Warn("shutdown grace period elapsed; forcing cancellation of in-flight requests", "in_flight", f.Stats().InFlight)
+			return
+		}
+	}
+}
+
+// sanitizedConfig returns the config with secrets redacted, shaped like
+// the YAML file (snake_case keys, "30s"-style durations), for display in
+// the dashboard.
+func sanitizedConfig(cfg config.Config) any {
+	if u, err := url.Parse(cfg.Storage.Postgres.DSN); err == nil && u.User != nil {
+		if _, hasPw := u.User.Password(); hasPw {
+			u.User = url.UserPassword(u.User.Username(), "redacted")
+		}
+		cfg.Storage.Postgres.DSN = u.String()
+	} else if err != nil {
+		cfg.Storage.Postgres.DSN = "(redacted)"
+	}
+	if cfg.Server.APIToken != "" {
+		cfg.Server.APIToken = "(set)"
+	}
+	var view map[string]any
+	if data, err := yaml.Marshal(cfg); err == nil && yaml.Unmarshal(data, &view) == nil {
+		return view
+	}
+	return cfg
 }
 
 // newBlobStore builds the configured blob store backend for raw page

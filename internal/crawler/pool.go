@@ -53,6 +53,34 @@ type Metrics interface {
 	RecordFetch(domain string, success bool)
 }
 
+// Outcome classifies what happened to one URL a worker picked up.
+type Outcome string
+
+const (
+	OutcomeSuccess Outcome = "success"
+	OutcomeFailure Outcome = "failure"
+	OutcomeBlocked Outcome = "blocked" // disallowed by robots.txt
+)
+
+// FetchEvent describes one processed URL, for live observers such as the
+// control dashboard.
+type FetchEvent struct {
+	URL      string
+	Domain   string
+	Depth    int
+	Outcome  Outcome
+	Links    int // links discovered (success only)
+	Err      error
+	Duration time.Duration
+	At       time.Time
+}
+
+// EventSink receives a FetchEvent for every processed URL. Implementations
+// must be safe for concurrent use and must not block.
+type EventSink interface {
+	OnFetch(ev FetchEvent)
+}
+
 // Pool drives a fixed number of worker goroutines that pull URLs from a
 // Frontier, fetch them (subject to a per-domain concurrency cap), and push
 // newly discovered links back into the Frontier.
@@ -63,6 +91,8 @@ type Pool struct {
 	limiter        RateLimiter   // optional
 	deadLetter     DeadLetter    // optional
 	metrics        Metrics       // optional
+	gate           *PauseGate    // optional
+	events         EventSink     // optional
 	globalWorkers  int
 	perDomainLimit int
 	maxDepth       int
@@ -89,6 +119,10 @@ type Config struct {
 	DeadLetter DeadLetter
 	// Metrics, when set, records per-domain fetch outcomes.
 	Metrics Metrics
+	// Gate, when set, lets the pool be paused and resumed while running.
+	Gate *PauseGate
+	// Events, when set, receives one event per processed URL.
+	Events EventSink
 }
 
 // New builds a Pool. f and fetcher must be non-nil.
@@ -110,6 +144,8 @@ func New(f *frontier.Frontier, fetcher PageFetcher, cfg Config) *Pool {
 		limiter:        cfg.Limiter,
 		deadLetter:     cfg.DeadLetter,
 		metrics:        cfg.Metrics,
+		gate:           cfg.Gate,
+		events:         cfg.Events,
 		globalWorkers:  cfg.GlobalWorkers,
 		perDomainLimit: cfg.PerDomainLimit,
 		maxDepth:       cfg.MaxDepth,
@@ -132,16 +168,56 @@ func (p *Pool) Run(ctx context.Context) {
 
 func (p *Pool) workerLoop(ctx context.Context) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if p.gate != nil {
+			if err := p.gate.Wait(ctx); err != nil {
+				return
+			}
+		}
 		item, ok := p.frontier.Next(ctx)
 		if !ok {
 			return
+		}
+		// A worker may have been blocked in Next when the pool was paused;
+		// hand the item back rather than starting new work while paused.
+		if p.gate != nil && p.gate.Paused() {
+			p.frontier.Release(item)
+			continue
 		}
 		p.process(ctx, item)
 	}
 }
 
+func (p *Pool) emit(item frontier.Item, domain string, outcome Outcome, links int, err error, start time.Time) {
+	if p.events == nil {
+		return
+	}
+	now := time.Now()
+	p.events.OnFetch(FetchEvent{
+		URL:      item.URL,
+		Domain:   domain,
+		Depth:    item.Depth,
+		Outcome:  outcome,
+		Links:    links,
+		Err:      err,
+		Duration: now.Sub(start),
+		At:       now,
+	})
+}
+
 func (p *Pool) process(ctx context.Context, item frontier.Item) {
-	defer p.frontier.Done(item.URL)
+	defer func() {
+		// If the crawl was canceled (e.g. shutdown grace period elapsed)
+		// before this item finished, hand it back to the queue so the final
+		// checkpoint still contains it instead of silently dropping it.
+		if ctx.Err() != nil {
+			p.frontier.Release(item)
+			return
+		}
+		p.frontier.Done(item.URL)
+	}()
 
 	domain, err := urlutil.Domain(item.URL)
 	if err != nil {
@@ -155,6 +231,7 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 			p.logger.Warn("robots.txt check failed; allowing by default", "url", item.URL, "error", err)
 		} else if !allowed {
 			p.logger.Debug("blocked by robots.txt", "url", item.URL)
+			p.emit(item, domain, OutcomeBlocked, 0, nil, time.Now())
 			return
 		}
 	}
@@ -178,7 +255,18 @@ func (p *Pool) process(ctx context.Context, item frontier.Item) {
 		}
 	}
 
+	start := time.Now()
 	links, err := p.fetcher.Fetch(ctx, item.URL)
+	if err != nil && ctx.Err() != nil {
+		// Interrupted by cancellation, not a real failure: don't count it
+		// or dead-letter it; the deferred Release re-queues it.
+		return
+	}
+	if err != nil {
+		p.emit(item, domain, OutcomeFailure, 0, err, start)
+	} else {
+		p.emit(item, domain, OutcomeSuccess, len(links), nil, start)
+	}
 	if p.metrics != nil {
 		p.metrics.RecordFetch(domain, err == nil)
 	}
