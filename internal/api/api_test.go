@@ -94,3 +94,40 @@ func TestCORSHeadersOnlyForAllowedOrigins(t *testing.T) {
 		t.Fatalf("CORS header = %q", got)
 	}
 }
+
+// The dashboard calls .length / .map on these fields, so an empty state
+// must encode them as [] rather than null.
+func TestEmptyListsEncodeAsArrays(t *testing.T) {
+	tests := []struct {
+		path   string
+		fields []string
+	}{
+		{"/api/queue", []string{"queued", "in_flight"}},
+		{"/api/status", []string{"throughput", "domains", "allowed_domains"}},
+		{"/api/events", []string{"events"}},
+		{"/api/deadletters", []string{"entries"}},
+	}
+	h, _ := newTestHandler(t, Options{})
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := do(h, "GET", tt.path, "", "", nil)
+			if rec.Code != 200 {
+				t.Fatalf("status = %d; body: %s", rec.Code, rec.Body.String())
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range tt.fields {
+				raw, ok := body[f]
+				if !ok {
+					t.Errorf("field %q missing", f)
+					continue
+				}
+				if string(raw) == "null" || raw[0] != '[' {
+					t.Errorf("field %q = %s, want a JSON array", f, raw)
+				}
+			}
+		})
+	}
+}

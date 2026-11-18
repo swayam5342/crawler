@@ -229,14 +229,16 @@ func (f *Frontier) Stats() Stats {
 }
 
 // Peek returns up to n queued items (in dequeue order) without removing
-// them, plus everything currently in flight.
+// them, plus everything currently in flight. Both slices are non-nil even
+// when empty, so they encode as [] (not null) in JSON.
 func (f *Frontier) Peek(n int) (queued []Item, inFlight []Item) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if n < 0 || n > len(f.queue) {
 		n = len(f.queue)
 	}
-	queued = append([]Item(nil), f.queue[:n]...)
+	queued = make([]Item, n)
+	copy(queued, f.queue[:n])
 	inFlight = make([]Item, 0, len(f.inFlight))
 	for _, it := range f.inFlight {
 		inFlight = append(inFlight, it)

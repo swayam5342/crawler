@@ -12,6 +12,9 @@ const LIMIT = 200;
 export default function Queue() {
   const { run } = useDashboard();
   const { data, refresh } = usePoll(() => crawler.queue(LIMIT), 2000);
+  // Treat a missing list as empty, so an odd API response can't crash the page.
+  const queued = data?.queued ?? [];
+  const inFlight = data?.in_flight ?? [];
 
   async function remove(url: string) {
     await run(() => crawler.removeQueued(url), (r) => (r.removed ? "Removed from the queue." : "That URL was already picked up."));
@@ -26,11 +29,11 @@ export default function Queue() {
       />
 
       <div className={s.grid}>
-        <Panel title="Fetching now" meta={data ? `${data.in_flight.length}` : undefined} flush>
-          {data && data.in_flight.length > 0 ? (
+        <Panel title="In progress" meta={data ? `${inFlight.length}, fetching or waiting for their domain's turn` : undefined} flush>
+          {inFlight.length > 0 ? (
             <table className={s.table}>
               <tbody>
-                {data.in_flight.map((it) => (
+                {inFlight.map((it) => (
                   <tr key={it.url}>
                     <td>
                       <URLText url={it.url} />
@@ -41,7 +44,7 @@ export default function Queue() {
               </tbody>
             </table>
           ) : (
-            <Empty title="Nothing is being fetched right now." />
+            <Empty title="Nothing is in progress right now." />
           )}
         </Panel>
 
@@ -50,7 +53,7 @@ export default function Queue() {
           meta={data ? (data.total_queued > LIMIT ? `showing ${LIMIT} of ${num(data.total_queued)}` : num(data.total_queued)) : undefined}
           flush
         >
-          {data && data.queued.length > 0 ? (
+          {queued.length > 0 ? (
             <div className={s.tableWrap}>
               <table className={s.table}>
                 <thead>
@@ -63,7 +66,7 @@ export default function Queue() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.queued.map((it) => (
+                  {queued.map((it) => (
                     <tr key={it.url}>
                       <td>
                         <URLText url={it.url} />

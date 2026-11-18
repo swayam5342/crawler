@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/swayamsb50/web_crawler/internal/control"
+	"github.com/swayamsb50/web_crawler/internal/deadletter"
 	"github.com/swayamsb50/web_crawler/internal/storage"
 )
 
@@ -226,7 +227,7 @@ func (s *server) deadLetters(w http.ResponseWriter, r *http.Request) {
 		entries = entries[:limit]
 	}
 	if entries == nil {
-		entries = entries[:0]
+		entries = []deadletter.Entry{} // encode as [], not null
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "total": total})
 }

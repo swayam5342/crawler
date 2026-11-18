@@ -85,7 +85,7 @@ export default function Overview() {
           <dd>{fr ? num(fr.queued) : dash}</dd>
         </div>
         <div className={s.stat}>
-          <dt>Fetching now</dt>
+          <dt>In progress</dt>
           <dd>{fr ? num(fr.in_flight) : dash}</dd>
         </div>
         <div className={s.stat}>
