@@ -8,6 +8,7 @@
 
 `web crawler` is a self-hosted web crawler written in Go, built to run unattended against real-world sites. It reads **robots.txt**, paces itself per domain, stops calling hosts that keep failing, retries with backoff, and resumes where it stopped after a crash. A **Next.js dashboard** lets you add URLs, pause, retry failures and reset state while it runs.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/swayam5342/crawler/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=0d3a55)](https://github.com/swayam5342/crawler/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-4cb3f0?style=flat-square&logo=go&logoColor=white&labelColor=0d3a55)](go.mod)
 [![Docker](https://img.shields.io/badge/run%20with-Docker%20Compose-4cb3f0?style=flat-square&logo=docker&logoColor=white&labelColor=0d3a55)](#option-a-docker-compose-recommended)
 [![Storage](https://img.shields.io/badge/storage-Postgres%20%2B%20disk%20or%20S3-4cb3f0?style=flat-square&logo=postgresql&logoColor=white&labelColor=0d3a55)](#data-pipeline)
