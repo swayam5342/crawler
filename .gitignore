@@ -4,3 +4,7 @@
 *.test
 *.out
 .DS_Store
+
+# Design review artifacts
+.jury/
+**/.hallmark/shots/

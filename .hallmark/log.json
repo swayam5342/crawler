@@ -1,0 +1,29 @@
+[
+ {
+  "shape": "Marquee Hero",
+  "theme": "blueprint",
+  "axes": "mid/geometric-sans/neutral",
+  "hero": "Stage",
+  "nav": "edge-aligned bar",
+  "footer": "colophon",
+  "imagery": "screenshots 4 (headless Chrome, demo data)",
+  "photos": [],
+  "entry": "none (hero plate draws once)",
+  "fingerprint": "stage-plate/register/pinned/rows/dimension/code",
+  "sections": [
+   "hero",
+   "register",
+   "pinned",
+   "rows",
+   "dimension",
+   "code-close"
+  ],
+  "signature": "the crawl graph as a drafting plate",
+  "waived": [
+   "23"
+  ],
+  "prompt": "a self-hosted Go web crawler for engineers: polite to sites, resilient to failures, controlled from a dashboard; run it locally",
+  "mode": "build",
+  "date": "2026-11-18"
+ }
+]
