@@ -6,7 +6,7 @@
 
 **A web crawler that backs off.**
 
-`web_crawler` is a self-hosted web crawler written in Go, built to run unattended against real-world sites. It reads **robots.txt**, paces itself per domain, stops calling hosts that keep failing, retries with backoff, and resumes where it stopped after a crash. A **Next.js dashboard** lets you add URLs, pause, retry failures and reset state while it runs.
+`web crawler` is a self-hosted web crawler written in Go, built to run unattended against real-world sites. It reads **robots.txt**, paces itself per domain, stops calling hosts that keep failing, retries with backoff, and resumes where it stopped after a crash. A **Next.js dashboard** lets you add URLs, pause, retry failures and reset state while it runs.
 
 [![Go](https://img.shields.io/badge/Go-1.25%2B-4cb3f0?style=flat-square&logo=go&logoColor=white&labelColor=0d3a55)](go.mod)
 [![Docker](https://img.shields.io/badge/run%20with-Docker%20Compose-4cb3f0?style=flat-square&logo=docker&logoColor=white&labelColor=0d3a55)](#option-a-docker-compose-recommended)
